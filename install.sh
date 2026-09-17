@@ -209,22 +209,50 @@ else
     exit 1
 fi
 
+# ─── Step 6: Install binary and default config ───────────────────────────────
+
+step "Installing waifuland"
+
+INSTALL_BIN_DIR="$HOME/.local/bin"
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/waifuland"
+CONFIG_FILE="$CONFIG_DIR/config.json"
+
+mkdir -p "$INSTALL_BIN_DIR"
+install -m 755 "$BUILD_DIR/bin/waifuland" "$INSTALL_BIN_DIR/waifuland"
+success "Installed binary to $INSTALL_BIN_DIR/waifuland"
+
+if [ -f "$CONFIG_FILE" ]; then
+    success "Config already exists at $CONFIG_FILE, leaving it untouched"
+else
+    mkdir -p "$CONFIG_DIR" "$CONFIG_DIR/models"
+    cat > "$CONFIG_FILE" <<'EOF'
+{
+  "characters": []
+}
+EOF
+    success "Wrote default config to $CONFIG_FILE"
+fi
+
+case ":$PATH:" in
+    *":$INSTALL_BIN_DIR:"*) ;;
+    *) warn "$INSTALL_BIN_DIR is not on your PATH. Add this to your shell profile:"
+       info "  export PATH=\"\$HOME/.local/bin:\$PATH\"" ;;
+esac
+
 # ─── Done ─────────────────────────────────────────────────────────────────────
 
-BINARY="$BUILD_DIR/bin/waifuland"
-
 echo ""
 echo -e "${GREEN}${BOLD}============================================${RESET}"
-echo -e "${GREEN}${BOLD}  Build successful!${RESET}"
+echo -e "${GREEN}${BOLD}  Build & install successful!${RESET}"
 echo -e "${GREEN}${BOLD}============================================${RESET}"
-echo ""
-echo -e "  Binary:  ${BOLD}$BINARY${RESET}"
 echo ""
 echo -e "  Run it:"
-echo -e "    ${BOLD}$BINARY${RESET}"
-echo -e "    ${BOLD}$BINARY --models_dir /path/to/models${RESET}"
+echo -e "    ${BOLD}waifuland${RESET}"
+echo -e "    ${BOLD}waifuland --models_dir /path/to/models${RESET}"
+echo ""
+echo -e "  Config:"
+echo -e "    ${BOLD}$CONFIG_FILE${RESET}"
 echo ""
 echo -e "  Default model directory:"
-echo -e "    ${BOLD}\$XDG_CONFIG_HOME/waifuland/models/${RESET}"
-echo -e "    ${BOLD}~/.config/waifuland/models/${RESET}"
+echo -e "    ${BOLD}$CONFIG_DIR/models/${RESET}"
 echo ""
