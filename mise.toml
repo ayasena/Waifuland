@@ -1,0 +1,62 @@
+[tools]
+cmake = "3.30"
+
+# `mise trust && mise bootstrap --yes` installs the system packages this
+# project needs to build, per OS package manager (only the manager present
+# on the host actually runs). macOS also needs the Xcode Command Line Tools
+# (`xcode-select --install`) — that's not something a package manager can
+# install, so it isn't listed here; see README.md.
+[bootstrap.packages]
+"apt:build-essential" = {}
+"apt:pkg-config" = {}
+"apt:libwayland-dev" = {}
+"apt:wayland-protocols" = {}
+"apt:libegl-dev" = {}
+"apt:libgl-dev" = {}
+"apt:curl" = {}
+"apt:unzip" = {}
+
+"pacman:base-devel" = {}
+"pacman:pkgconf" = {}
+"pacman:wayland" = {}
+"pacman:wayland-protocols" = {}
+"pacman:libglvnd" = {}
+"pacman:egl-wayland" = {}
+"pacman:curl" = {}
+"pacman:unzip" = {}
+
+"dnf:gcc-c++" = {}
+"dnf:pkgconf-pkg-config" = {}
+"dnf:wayland-devel" = {}
+"dnf:wayland-protocols-devel" = {}
+"dnf:mesa-libEGL-devel" = {}
+"dnf:mesa-libGL-devel" = {}
+"dnf:curl" = {}
+"dnf:unzip" = {}
+
+"brew:cmake" = {}
+"brew:curl" = {}
+
+[tasks.bootstrap]
+description = "Sanity-check the toolchain after `mise bootstrap`"
+run = "cmake --version"
+
+[tasks.build]
+description = "Configure and build waifuland (checks deps, downloads GLEW/Cubism SDK if needed)"
+run = "./install.sh"
+
+[tasks.configure]
+description = "Configure the CMake build directory only"
+run = "cmake -S . -B build"
+
+[tasks.compile]
+description = "Build without re-running the full install.sh dependency/SDK check"
+run = "cmake --build build -j"
+
+[tasks.run]
+description = "Run the built waifuland binary"
+run = "./build/bin/waifuland"
+
+[tasks.clean]
+description = "Remove the build directory"
+run = "rm -rf build"
