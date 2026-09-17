@@ -48,6 +48,8 @@ LAppModel::LAppModel()
     , _currentSkinIndex(0)
     , _lastExpressionTime(-1.0f)
     , _nextExpressionIndex(0)
+    , _baseTranslateX(0.0f)
+    , _baseTranslateY(0.0f)
 {
     if (DebugLogEnable)
     {
@@ -103,9 +105,26 @@ void LAppModel::LoadAssets(const csmChar* dir, const csmChar* fileName)
         return;
     }
 
+    // Snapshot the layout-derived position so SetCharacterOffset() can apply a
+    // per-character offset on top of it without compounding. Deliberately not
+    // snapshotting scale here: LAppLive2DManager::OnUpdate() can still call
+    // GetModelMatrix()->SetWidth(2.0f) once a frame for portrait-canvas models,
+    // and that must stay free to run — per-character zoom is applied to the
+    // per-frame projection matrix instead (see OnUpdate), not to _modelMatrix.
+    _baseTranslateX = _modelMatrix->GetTranslateX();
+    _baseTranslateY = _modelMatrix->GetTranslateY();
+
     CreateRenderer(LAppDelegate::GetInstance()->GetWindowWidth(), LAppDelegate::GetInstance()->GetWindowHeight());
 
     SetupTextures();
+}
+
+void LAppModel::SetCharacterOffset(csmFloat32 x, csmFloat32 y)
+{
+    if (_modelMatrix == NULL) return;
+
+    _modelMatrix->TranslateX(_baseTranslateX + x);
+    _modelMatrix->TranslateY(_baseTranslateY + y);
 }
 
 

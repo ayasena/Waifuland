@@ -28,6 +28,7 @@ https://github.com/user-attachments/assets/95dfdedc-4957-4bb7-b79f-f3addd97a6db
 
 ## Features
 
+- **Multiple characters, one window** — show several Live2D models at once, each independently draggable, zoomable, and switchable, instead of running a separate instance per character (see [Multiple characters](#multiple-characters))
 - **Native overlay on Linux & macOS** — a Wayland layer-shell surface on Linux, a borderless floating Cocoa window on macOS; always on top of your desktop
 - **Click-through transparency** — only the Live2D model area receives pointer events; everything else passes through
 - **Multi-compositor support (Linux)** — works on any Wayland compositor supporting `wlr-layer-shell` (Hyprland, Sway, river, etc.)
@@ -172,15 +173,40 @@ Example `config.json`:
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `additional_model_dirs` | string[] | `[]` | Extra directories to scan for models (in addition to the default models dir) |
-| `default_model` | string | `""` | Name of the model subfolder to load first on startup |
+| `default_model` | string | `""` | Name of the model subfolder to load first on startup (single-character shorthand — see [Multiple characters](#multiple-characters) below) |
 | `emotion_timeout` | float | `5` | Seconds before expression reverts to default. Set to `-1` to never revert |
-| `model_scale` | float | `1.0` | Initial model scale |
-| `model_x` | float | `0.0` | Initial model X offset |
-| `model_y` | float | `0.0` | Initial model Y offset |
+| `model_scale` | float | `1.0` | Initial model scale (used with `default_model`) |
+| `model_x` | float | `0.0` | Initial model X offset (used with `default_model`) |
+| `model_y` | float | `0.0` | Initial model Y offset (used with `default_model`) |
 | `window_width` | int | `1900` | Render target width in pixels |
 | `window_height` | int | `1000` | Render target height in pixels |
 
 All fields are optional. Missing fields use their default values. If the config file doesn't exist, all defaults are used.
+
+### Multiple characters
+
+Instead of running `waifuland` once per character, a single instance can show several Live2D models at once in one window — each independently draggable, zoomable, and switchable. Replace `default_model`/`model_scale`/`model_x`/`model_y` with a `characters` array:
+
+```json
+{
+    "characters": [
+        { "model": "MyFavoriteModel" },
+        { "model": "AnotherModel", "x": 0.6, "scale": 0.9 }
+    ],
+    "window_width": 1900,
+    "window_height": 1000
+}
+```
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `model` | string | *(required)* | Name of the model subfolder |
+| `x`, `y` | float | auto | Position offset (screen space, roughly -1.0..1.0). Omit both to auto-arrange this character in an evenly-spaced row alongside the others |
+| `scale` | float | `1.0` | Initial zoom for this character |
+
+A character with no `x`/`y` is auto-positioned; the row re-flows (only for auto-positioned characters) whenever a character is added or removed, including at runtime via IPC. Dragging a character removes it from auto-layout — it keeps whatever position you drop it at.
+
+Each character can be dragged, scroll-zoomed, and right-click/middle-click switched independently — interactions are routed to whichever character is under the cursor. The IPC API can also target a specific character by id (see below). A config with no `characters` array and a `default_model` set is equivalent to a single-character `characters` array, for backward compatibility.
 
 ### Controls
 
@@ -248,6 +274,10 @@ Waifuland exposes a Unix domain socket for external control by scripts and progr
 - **Socket path:** `$XDG_RUNTIME_DIR/waifuland.sock` (fallback: `/tmp/waifuland.sock`)
 - **Protocol:** Newline-delimited JSON — send `{"command":"<name>", ...}\n`, receive `{"ok":true, ...}\n`
 - **Requires:** `socat` (install via your package manager)
+
+### Targeting a character
+
+When multiple characters are shown at once (see [Multiple characters](#multiple-characters)), every per-model command below accepts an optional `"character": <id>` field to target one of them specifically. Omitting it defaults to character `0`, so existing single-character scripts keep working unchanged. Character ids come from `list_characters` (below) and stay stable across add/remove — they are not the same as a character's position in the list.
 
 ### CLI Client
 
@@ -503,6 +533,51 @@ Value range: `0.1` to `10.0`.
 }
 ```
 
+#### `list_characters` — List all currently shown characters
+
+```bash
+./waifuland-ctl list_characters
+```
+
+```json
+{
+    "ok": true,
+    "characters": [
+        {"id": 0, "model": "MyModel", "index": 0, "x": -0.3, "y": 0.0, "zoom": 1.0},
+        {"id": 1, "model": "AnotherModel", "index": 1, "x": 0.3, "y": 0.0, "zoom": 1.0}
+    ]
+}
+```
+
+#### `add_character` — Add a character at runtime
+
+```bash
+# By name, auto-positioned in the row layout
+./waifuland-ctl add_character --name "AnotherModel"
+
+# By index, with an explicit position and zoom
+./waifuland-ctl add_character --index 2 --x 0.6 --y 0.0 --scale 0.9
+```
+
+```json
+{
+    "ok": true,
+    "character": 2
+}
+```
+
+#### `remove_character` — Remove a character at runtime
+
+```bash
+./waifuland-ctl remove_character --character 2
+```
+
+```json
+{
+    "ok": true
+}
+```
+
 ### Raw Socket Usage
 
 You can also communicate directly with the socket without `waifuland-ctl`:
@@ -549,7 +624,7 @@ waifuland/
 │   ├── LAppWayland.*       # Wayland client setup (display, compositor, EGL, layer-shell)
 │   ├── LAppWaylandRegion.* # Input region management (click-through transparency)
 │   ├── LAppDelegate.*      # Main app controller, render loop, input handling
-│   ├── LAppLive2DManager.* # Model lifecycle management
+│   ├── LAppLive2DManager.* # Character roster & model lifecycle management
 │   ├── LAppView.*          # View/projection matrices, rendering coordination
 │   ├── LAppModel.*         # Individual Live2D model instance
 │   ├── LAppIPC.*           # IPC socket server for external control

@@ -162,6 +162,12 @@ private:
     int _windowStartY;
     float _lookCenterX;
     float _lookCenterY;
+
+    /// Character hit-tested at the start of the current left-drag gesture
+    /// (-1 if the press didn't land on a character's Head/Body hit area).
+    /// Drag deltas move only this character; -1 means the gesture is just a
+    /// window-level drag (e.g. for the cross-monitor move-on-release check).
+    int _draggedCharacterId;
     
 public:
     bool _isHidden = false;
@@ -169,11 +175,6 @@ public:
 
     volatile bool _pendingFocusMove = false;
     void RequestMoveToFocusedMonitor() { _pendingFocusMove = true; }
-
-    float _modelScale;
-    float _targetModelScale;     ///< scroll writes here; _modelScale eases toward it each frame
-    float _modelX;
-    float _modelY;
 
 public:
     void SetLookCenter(float x, float y) {

@@ -25,6 +25,16 @@
 #   waifuland-ctl set_look --x 0.5 --y 0.3
 #   waifuland-ctl set_look --reset
 #   waifuland-ctl get_current_model
+#   waifuland-ctl list_characters
+#   waifuland-ctl add_character --name "MyModel" [--x 0.5 --y 0 --scale 1.0]
+#   waifuland-ctl remove_character --character 2
+#
+# Multiple characters can be shown at once (see the "characters" config array
+# in config.json). Every per-model command above accepts an optional
+# --character <id> to target one specific character instead of the default
+# (character 0), e.g.:
+#   waifuland-ctl do_motion --character 1 --group "TapBody"
+#   waifuland-ctl set_model_zoom --character 1 --value 1.5
 #
 # The socket path is $XDG_RUNTIME_DIR/waifuland.sock (fallback: /tmp/waifuland.sock)
 
@@ -53,6 +63,12 @@ if [ $# -lt 1 ]; then
     echo "  toggle_hidden         Toggle window visibility"
     echo "  switch_skin           Switch model skin/outfit"
     echo "  set_look              Set look direction (--x, --y) or --reset"
+    echo "  list_characters       List all currently shown characters"
+    echo "  add_character         Add a character (--name/--index, --x, --y, --scale)"
+    echo "  remove_character      Remove a character (--character <id>)"
+    echo ""
+    echo "Most commands accept --character <id> to target one of several"
+    echo "simultaneously-shown characters (default: 0)."
     exit 1
 fi
 

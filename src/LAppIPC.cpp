@@ -326,24 +326,33 @@ std::string LAppIPC::ProcessCommand(const std::string& json)
         return oss.str();
     }
 
+    // Every per-character command below takes an optional "character": <id>
+    // field; omitting it defaults to character 0, so scripts written against
+    // the old single-character API keep working unchanged.
+
     // ── get_current_model ──
     if (command == "get_current_model")
     {
-        csmVector<csmString> dirs = mgr->GetModelDir();
-        csmInt32 idx = mgr->GetSceneIndex();
-        std::string name = "";
-        if (idx >= 0 && idx < (csmInt32)dirs.GetSize())
+        int charId = JsonGetInt(json, "character", 0);
+        csmInt32 idx = mgr->GetCharacterModelDirIndex(charId);
+        if (idx < 0)
         {
-            name = dirs[idx].GetRawString();
+            return "{\"ok\":false,\"error\":\"no such character\"}";
         }
+
+        csmVector<csmString> dirs = mgr->GetModelDir();
+        std::string name = (idx < (csmInt32)dirs.GetSize()) ? dirs[idx].GetRawString() : "";
+
         std::ostringstream oss;
-        oss << "{\"ok\":true,\"model\":\"" << JsonEscape(name) << "\",\"index\":" << idx << "}";
+        oss << "{\"ok\":true,\"character\":" << charId
+            << ",\"model\":\"" << JsonEscape(name) << "\",\"index\":" << idx << "}";
         return oss.str();
     }
 
     // ── set_model ──
     if (command == "set_model")
     {
+        int charId = JsonGetInt(json, "character", 0);
         std::string name = JsonGetString(json, "name");
         int index = JsonGetInt(json, "index", -1);
 
@@ -369,17 +378,23 @@ std::string LAppIPC::ProcessCommand(const std::string& json)
             return "{\"ok\":false,\"error\":\"invalid index\"}";
         }
 
-        mgr->ChangeScene(index);
+        if (mgr->GetCharacterModel(charId) == NULL)
+        {
+            return "{\"ok\":false,\"error\":\"no such character\"}";
+        }
+
+        mgr->SetCharacterModel(charId, index);
         return "{\"ok\":true}";
     }
 
     // ── get_expressions ──
     if (command == "get_expressions")
     {
-        LAppModel* model = mgr->GetModel(0);
+        int charId = JsonGetInt(json, "character", 0);
+        LAppModel* model = mgr->GetCharacterModel(charId);
         if (!model)
         {
-            return "{\"ok\":false,\"error\":\"no model loaded\"}";
+            return "{\"ok\":false,\"error\":\"no such character\"}";
         }
 
         std::vector<std::string> exprs = model->GetExpressionIds();
@@ -397,10 +412,11 @@ std::string LAppIPC::ProcessCommand(const std::string& json)
     // ── set_expression ──
     if (command == "set_expression")
     {
-        LAppModel* model = mgr->GetModel(0);
+        int charId = JsonGetInt(json, "character", 0);
+        LAppModel* model = mgr->GetCharacterModel(charId);
         if (!model)
         {
-            return "{\"ok\":false,\"error\":\"no model loaded\"}";
+            return "{\"ok\":false,\"error\":\"no such character\"}";
         }
 
         std::string id = JsonGetString(json, "id");
@@ -416,10 +432,11 @@ std::string LAppIPC::ProcessCommand(const std::string& json)
     // ── get_motions ──
     if (command == "get_motions")
     {
-        LAppModel* model = mgr->GetModel(0);
+        int charId = JsonGetInt(json, "character", 0);
+        LAppModel* model = mgr->GetCharacterModel(charId);
         if (!model)
         {
-            return "{\"ok\":false,\"error\":\"no model loaded\"}";
+            return "{\"ok\":false,\"error\":\"no such character\"}";
         }
 
         std::vector<LAppModel::MotionInfo> motions = model->GetMotionList();
@@ -439,10 +456,11 @@ std::string LAppIPC::ProcessCommand(const std::string& json)
     // ── do_motion ──
     if (command == "do_motion")
     {
-        LAppModel* model = mgr->GetModel(0);
+        int charId = JsonGetInt(json, "character", 0);
+        LAppModel* model = mgr->GetCharacterModel(charId);
         if (!model)
         {
-            return "{\"ok\":false,\"error\":\"no model loaded\"}";
+            return "{\"ok\":false,\"error\":\"no such character\"}";
         }
 
         std::string group = JsonGetString(json, "group");
@@ -474,33 +492,126 @@ std::string LAppIPC::ProcessCommand(const std::string& json)
     // ── set_model_zoom ──
     if (command == "set_model_zoom")
     {
+        int charId = JsonGetInt(json, "character", 0);
+        if (mgr->GetCharacterModel(charId) == NULL)
+        {
+            return "{\"ok\":false,\"error\":\"no such character\"}";
+        }
+
         float zoom = JsonGetFloat(json, "value", -1.0f);
         if (zoom < 0.1f || zoom > 10.0f)
         {
             return "{\"ok\":false,\"error\":\"value must be 0.1..10.0\"}";
         }
-        app->_modelScale = zoom;
+        mgr->SetCharacterZoom(charId, zoom);
         return "{\"ok\":true}";
     }
 
     // ── set_model_position ──
     if (command == "set_model_position")
     {
-        float x = JsonGetFloat(json, "x", app->_modelX);
-        float y = JsonGetFloat(json, "y", app->_modelY);
-        app->_modelX = x;
-        app->_modelY = y;
+        int charId = JsonGetInt(json, "character", 0);
+        if (mgr->GetCharacterModel(charId) == NULL)
+        {
+            return "{\"ok\":false,\"error\":\"no such character\"}";
+        }
+
+        float x = JsonGetFloat(json, "x", mgr->GetCharacterX(charId));
+        float y = JsonGetFloat(json, "y", mgr->GetCharacterY(charId));
+        mgr->SetCharacterPosition(charId, x, y);
         return "{\"ok\":true}";
     }
 
     // ── get_model_position ──
     if (command == "get_model_position")
     {
+        int charId = JsonGetInt(json, "character", 0);
+        if (mgr->GetCharacterModel(charId) == NULL)
+        {
+            return "{\"ok\":false,\"error\":\"no such character\"}";
+        }
+
         std::ostringstream oss;
-        oss << "{\"ok\":true,\"x\":" << app->_modelX
-            << ",\"y\":" << app->_modelY
-            << ",\"zoom\":" << app->_modelScale << "}";
+        oss << "{\"ok\":true,\"x\":" << mgr->GetCharacterX(charId)
+            << ",\"y\":" << mgr->GetCharacterY(charId)
+            << ",\"zoom\":" << mgr->GetCharacterZoom(charId) << "}";
         return oss.str();
+    }
+
+    // ── list_characters ──
+    if (command == "list_characters")
+    {
+        csmVector<csmString> dirs = mgr->GetModelDir();
+        std::ostringstream oss;
+        oss << "{\"ok\":true,\"characters\":[";
+        csmInt32 count = mgr->GetCharacterCount();
+        for (csmInt32 i = 0; i < count; i++)
+        {
+            int id = mgr->GetCharacterIdAt(i);
+            csmInt32 idx = mgr->GetCharacterModelDirIndex(id);
+            std::string name = (idx >= 0 && idx < (csmInt32)dirs.GetSize()) ? dirs[idx].GetRawString() : "";
+
+            if (i > 0) oss << ",";
+            oss << "{\"id\":" << id
+                << ",\"model\":\"" << JsonEscape(name) << "\""
+                << ",\"index\":" << idx
+                << ",\"x\":" << mgr->GetCharacterX(id)
+                << ",\"y\":" << mgr->GetCharacterY(id)
+                << ",\"zoom\":" << mgr->GetCharacterZoom(id) << "}";
+        }
+        oss << "]}";
+        return oss.str();
+    }
+
+    // ── add_character ──
+    if (command == "add_character")
+    {
+        std::string name = JsonGetString(json, "name");
+        int index = JsonGetInt(json, "index", -1);
+
+        if (!name.empty())
+        {
+            csmVector<csmString> dirs = mgr->GetModelDir();
+            for (csmInt32 i = 0; i < (csmInt32)dirs.GetSize(); i++)
+            {
+                if (strcmp(dirs[i].GetRawString(), name.c_str()) == 0)
+                {
+                    index = i;
+                    break;
+                }
+            }
+        }
+
+        if (index < 0 || index >= mgr->GetModelDirSize())
+        {
+            return "{\"ok\":false,\"error\":\"model not found\"}";
+        }
+
+        bool hasPosition = json.find("\"x\"") != std::string::npos || json.find("\"y\"") != std::string::npos;
+        float x = JsonGetFloat(json, "x", 0.0f);
+        float y = JsonGetFloat(json, "y", 0.0f);
+        float scale = JsonGetFloat(json, "scale", 1.0f);
+
+        int id = mgr->AddCharacter(index, hasPosition, x, y, scale);
+        if (id < 0)
+        {
+            return "{\"ok\":false,\"error\":\"failed to add character\"}";
+        }
+
+        std::ostringstream oss;
+        oss << "{\"ok\":true,\"character\":" << id << "}";
+        return oss.str();
+    }
+
+    // ── remove_character ──
+    if (command == "remove_character")
+    {
+        int charId = JsonGetInt(json, "character", -1);
+        if (!mgr->RemoveCharacter(charId))
+        {
+            return "{\"ok\":false,\"error\":\"no such character\"}";
+        }
+        return "{\"ok\":true}";
     }
 
     // ── toggle_hidden ──
@@ -533,12 +644,11 @@ std::string LAppIPC::ProcessCommand(const std::string& json)
     if (command == "get_status")
     {
         csmVector<csmString> dirs = mgr->GetModelDir();
-        csmInt32 idx = mgr->GetSceneIndex();
-        std::string modelName = "";
-        if (idx >= 0 && idx < (csmInt32)dirs.GetSize())
-        {
-            modelName = dirs[idx].GetRawString();
-        }
+
+        // Top-level model/model_index/zoom/x/y mirror character 0, for
+        // scripts written against the old single-character API.
+        csmInt32 idx = mgr->GetCharacterModelDirIndex(0);
+        std::string modelName = (idx >= 0 && idx < (csmInt32)dirs.GetSize()) ? dirs[idx].GetRawString() : "";
 
         std::ostringstream oss;
         oss << "{\"ok\":true"
@@ -546,9 +656,10 @@ std::string LAppIPC::ProcessCommand(const std::string& json)
             << ",\"model_index\":" << idx
             << ",\"model_count\":" << mgr->GetModelDirSize()
             << ",\"hidden\":" << (app->_isHidden ? "true" : "false")
-            << ",\"zoom\":" << app->_modelScale
-            << ",\"x\":" << app->_modelX
-            << ",\"y\":" << app->_modelY
+            << ",\"zoom\":" << mgr->GetCharacterZoom(0)
+            << ",\"x\":" << mgr->GetCharacterX(0)
+            << ",\"y\":" << mgr->GetCharacterY(0)
+            << ",\"character_count\":" << mgr->GetCharacterCount()
             << "}";
         return oss.str();
     }
@@ -556,27 +667,24 @@ std::string LAppIPC::ProcessCommand(const std::string& json)
     // ── next_model ──
     if (command == "next_model")
     {
-        mgr->NextScene();
+        int charId = JsonGetInt(json, "character", 0);
+        mgr->NextCharacterModel(charId);
         return "{\"ok\":true}";
     }
 
     // ── prev_model ──
     if (command == "prev_model")
     {
-        csmInt32 size = mgr->GetModelDirSize();
-        if (size > 0)
-        {
-            csmInt32 idx = mgr->GetSceneIndex();
-            csmInt32 prev = (idx - 1 + size) % size;
-            mgr->ChangeScene(prev);
-        }
+        int charId = JsonGetInt(json, "character", 0);
+        mgr->PrevCharacterModel(charId);
         return "{\"ok\":true}";
     }
 
     // ── switch_skin ──
     if (command == "switch_skin")
     {
-        mgr->SwitchSkin();
+        int charId = JsonGetInt(json, "character", 0);
+        mgr->SwitchSkin(charId);
         return "{\"ok\":true}";
     }
 

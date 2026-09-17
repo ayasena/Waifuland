@@ -18,6 +18,7 @@
 
 #include <Rendering/CubismRenderer.hpp>
 #include <Rendering/OpenGL/CubismOffscreenManager_OpenGLES2.hpp>
+#include <cmath>
 #include "LAppPal.hpp"
 #include "LAppDefine.hpp"
 #include "LAppConfig.hpp"
@@ -32,6 +33,12 @@ using namespace LAppDefine;
 namespace {
     LAppLive2DManager* s_instance = NULL;
 
+    // Normalized-screen-space spacing between auto-placed characters (see
+    // LAppLive2DManager::ReflowAutoLayout). The window's screen space spans
+    // roughly [-1, 1] (LAppDefine::ViewLogicalLeft/Right), so this fits a
+    // handful of characters side by side without excessive overlap.
+    const csmFloat32 CharacterRowSpacing = 0.6f;
+
     void BeganMotion(ACubismMotion* self)
     {
         LAppPal::PrintLogLn("Motion began: %x", self);
@@ -40,12 +47,6 @@ namespace {
     void FinishedMotion(ACubismMotion* self)
     {
         LAppPal::PrintLogLn("Motion Finished: %x", self);
-    }
-
-    int CompareCsmString(const void* a, const void* b)
-    {
-        return strcmp(reinterpret_cast<const Csm::csmString*>(a)->GetRawString(),
-            reinterpret_cast<const Csm::csmString*>(b)->GetRawString());
     }
 }
 
@@ -71,7 +72,7 @@ void LAppLive2DManager::ReleaseInstance()
 
 LAppLive2DManager::LAppLive2DManager()
     : _viewMatrix(NULL)
-    , _sceneIndex(0)
+    , _nextCharacterId(0)
 {
     _viewMatrix = new CubismMatrix44();
     SetUpModel();
@@ -86,24 +87,9 @@ LAppLive2DManager::LAppLive2DManager()
         return;
     }
 
-    // Find default model index from config
-    const std::string& defaultModel = LAppConfig::GetInstance().defaultModel;
-    if (!defaultModel.empty())
-    {
-        for (csmInt32 i = 0; i < _modelDir.GetSize(); i++)
-        {
-            if (strcmp(_modelDir[i].GetRawString(), defaultModel.c_str()) == 0)
-            {
-                _sceneIndex = i;
-                LAppPal::PrintLogLn("[APP]Default model set to: %s (index %d)", defaultModel.c_str(), i);
-                break;
-            }
-        }
-    }
-
-    InitModelCache();
-
-    ChangeScene(_sceneIndex);
+    // The initial character roster is populated by main.cpp from config
+    // (LAppConfig::characters, with a fallback to a single default character)
+    // once LAppDelegate::Initialize() has finished setting up rendering.
 }
 
 LAppLive2DManager::~LAppLive2DManager()
@@ -115,17 +101,11 @@ LAppLive2DManager::~LAppLive2DManager()
 
 void LAppLive2DManager::ReleaseAllModel()
 {
-    _models.Clear();
-
-    for (csmUint32 i = 0; i < _modelCache.GetSize(); i++)
+    for (csmUint32 i = 0; i < _characters.GetSize(); i++)
     {
-        if (_modelCache[i] != NULL)
-        {
-            delete _modelCache[i];
-            _modelCache[i] = NULL;
-        }
+        delete _characters[i].model;
     }
-    _modelCache.Clear();
+    _characters.Clear();
 }
 
 void LAppLive2DManager::ScanModelsInDir(const csmString& basePath)
@@ -225,61 +205,6 @@ void LAppLive2DManager::SetUpModel()
     }
 }
 
-void LAppLive2DManager::InitModelCache()
-{
-    for (csmUint32 i = 0; i < _modelCache.GetSize(); i++)
-    {
-        if (_modelCache[i] != NULL)
-        {
-            delete _modelCache[i];
-        }
-    }
-    _modelCache.Clear();
-
-    for (csmInt32 i = 0; i < _modelDir.GetSize(); i++)
-    {
-        _modelCache.PushBack(NULL);
-    }
-}
-
-void LAppLive2DManager::PreloadNextModel()
-{
-    if (GetModelDirSize() <= 1) return;
-
-    csmInt32 nextIndex = (_sceneIndex + 1) % GetModelDirSize();
-
-    if (_modelCache[nextIndex] != NULL) return;
-
-    const csmString& model = _modelDir[nextIndex];
-    LAppPal::PrintLogLn("[APP]preloading model: %s", model.GetRawString());
-
-    csmString modelPath(_modelBasePath[nextIndex]);
-    modelPath += model;
-    modelPath.Append(1, '/');
-
-    const csmString& modelJsonName = _modelJsonName[nextIndex];
-
-    _modelCache[nextIndex] = new LAppModel();
-    _modelCache[nextIndex]->LoadAssets(modelPath.GetRawString(), modelJsonName.GetRawString());
-}
-
-void LAppLive2DManager::EvictExcessModels()
-{
-    if (GetModelDirSize() <= 4) return;
-
-    csmInt32 nextIndex = (_sceneIndex + 1) % GetModelDirSize();
-
-    for (csmInt32 i = 0; i < (csmInt32)_modelCache.GetSize(); i++)
-    {
-        if (i != _sceneIndex && i != nextIndex && _modelCache[i] != NULL)
-        {
-            LAppPal::PrintLogLn("[APP]evicting cached model: %s", _modelDir[i].GetRawString());
-            delete _modelCache[i];
-            _modelCache[i] = NULL;
-        }
-    }
-}
-
 csmVector<csmString> LAppLive2DManager::GetModelDir() const
 {
     return _modelDir;
@@ -290,33 +215,270 @@ csmInt32 LAppLive2DManager::GetModelDirSize() const
     return _modelDir.GetSize();
 }
 
+LAppModel* LAppLive2DManager::CreateModelInstance(csmInt32 modelDirIndex) const
+{
+    if (modelDirIndex < 0 || modelDirIndex >= (csmInt32)_modelDir.GetSize()) return NULL;
+
+    const csmString& modelName = _modelDir[modelDirIndex];
+    LAppPal::PrintLogLn("[APP]loading model: %s", modelName.GetRawString());
+
+    csmString modelPath(_modelBasePath[modelDirIndex]);
+    modelPath += modelName;
+    modelPath.Append(1, '/');
+
+    const csmString& modelJsonName = _modelJsonName[modelDirIndex];
+
+    LAppModel* instance = new LAppModel();
+    instance->LoadAssets(modelPath.GetRawString(), modelJsonName.GetRawString());
+    return instance;
+}
+
+LAppLive2DManager::CharacterSlot* LAppLive2DManager::FindSlot(int characterId)
+{
+    for (csmUint32 i = 0; i < _characters.GetSize(); i++)
+    {
+        if (_characters[i].id == characterId) return &_characters[i];
+    }
+    return NULL;
+}
+
+const LAppLive2DManager::CharacterSlot* LAppLive2DManager::FindSlot(int characterId) const
+{
+    for (csmUint32 i = 0; i < _characters.GetSize(); i++)
+    {
+        if (_characters[i].id == characterId) return &_characters[i];
+    }
+    return NULL;
+}
+
+void LAppLive2DManager::ReflowAutoLayout()
+{
+    csmInt32 count = (csmInt32)_characters.GetSize();
+    for (csmInt32 i = 0; i < count; i++)
+    {
+        CharacterSlot& slot = _characters[i];
+        if (!slot.autoPositioned) continue;
+
+        slot.posX = (static_cast<float>(i) - (count - 1) * 0.5f) * CharacterRowSpacing;
+        slot.posY = 0.0f;
+
+        if (slot.model)
+        {
+            slot.model->SetCharacterOffset(slot.posX, slot.posY);
+        }
+    }
+}
+
+int LAppLive2DManager::AddCharacter(csmInt32 modelDirIndex, bool hasPosition, csmFloat32 x, csmFloat32 y, csmFloat32 scale)
+{
+    LAppModel* model = CreateModelInstance(modelDirIndex);
+    if (model == NULL) return -1;
+
+    CharacterSlot slot;
+    slot.id = _nextCharacterId++;
+    slot.modelDirIndex = modelDirIndex;
+    slot.model = model;
+    slot.posX = hasPosition ? x : 0.0f;
+    slot.posY = hasPosition ? y : 0.0f;
+    slot.scale = scale;
+    slot.targetScale = scale;
+    slot.autoPositioned = !hasPosition;
+
+    _characters.PushBack(slot);
+
+    if (hasPosition)
+    {
+        model->SetCharacterOffset(x, y);
+    }
+
+    ReflowAutoLayout();
+
+    return _characters[_characters.GetSize() - 1].id;
+}
+
+bool LAppLive2DManager::RemoveCharacter(int characterId)
+{
+    for (csmUint32 i = 0; i < _characters.GetSize(); i++)
+    {
+        if (_characters[i].id == characterId)
+        {
+            delete _characters[i].model;
+            _characters.Remove(i);
+            ReflowAutoLayout();
+            return true;
+        }
+    }
+    return false;
+}
+
+csmInt32 LAppLive2DManager::GetCharacterCount() const
+{
+    return _characters.GetSize();
+}
+
+int LAppLive2DManager::GetCharacterIdAt(csmInt32 index) const
+{
+    if (index < 0 || index >= (csmInt32)_characters.GetSize()) return -1;
+    return _characters[index].id;
+}
+
+LAppModel* LAppLive2DManager::GetCharacterModel(int characterId) const
+{
+    const CharacterSlot* slot = FindSlot(characterId);
+    return slot ? slot->model : NULL;
+}
+
+csmInt32 LAppLive2DManager::GetCharacterModelDirIndex(int characterId) const
+{
+    const CharacterSlot* slot = FindSlot(characterId);
+    return slot ? slot->modelDirIndex : -1;
+}
+
+csmFloat32 LAppLive2DManager::GetCharacterX(int characterId) const
+{
+    const CharacterSlot* slot = FindSlot(characterId);
+    return slot ? slot->posX : 0.0f;
+}
+
+csmFloat32 LAppLive2DManager::GetCharacterY(int characterId) const
+{
+    const CharacterSlot* slot = FindSlot(characterId);
+    return slot ? slot->posY : 0.0f;
+}
+
+csmFloat32 LAppLive2DManager::GetCharacterZoom(int characterId) const
+{
+    const CharacterSlot* slot = FindSlot(characterId);
+    return slot ? slot->targetScale : 1.0f;
+}
+
+void LAppLive2DManager::SetCharacterModel(int characterId, csmInt32 modelDirIndex)
+{
+    CharacterSlot* slot = FindSlot(characterId);
+    if (slot == NULL) return;
+
+    LAppModel* newModel = CreateModelInstance(modelDirIndex);
+    if (newModel == NULL) return;
+
+    delete slot->model;
+    slot->model = newModel;
+    slot->modelDirIndex = modelDirIndex;
+    newModel->SetCharacterOffset(slot->posX, slot->posY);
+}
+
+void LAppLive2DManager::NextCharacterModel(int characterId)
+{
+    csmInt32 size = GetModelDirSize();
+    if (size == 0) return;
+
+    CharacterSlot* slot = FindSlot(characterId);
+    if (slot == NULL) return;
+
+    csmInt32 next = (slot->modelDirIndex + 1) % size;
+    SetCharacterModel(characterId, next);
+}
+
+void LAppLive2DManager::PrevCharacterModel(int characterId)
+{
+    csmInt32 size = GetModelDirSize();
+    if (size == 0) return;
+
+    CharacterSlot* slot = FindSlot(characterId);
+    if (slot == NULL) return;
+
+    csmInt32 prev = (slot->modelDirIndex - 1 + size) % size;
+    SetCharacterModel(characterId, prev);
+}
+
+void LAppLive2DManager::SetCharacterPosition(int characterId, csmFloat32 x, csmFloat32 y)
+{
+    CharacterSlot* slot = FindSlot(characterId);
+    if (slot == NULL) return;
+
+    slot->posX = x;
+    slot->posY = y;
+    slot->autoPositioned = false;
+
+    if (slot->model)
+    {
+        slot->model->SetCharacterOffset(x, y);
+    }
+}
+
+void LAppLive2DManager::SetCharacterZoom(int characterId, csmFloat32 scale)
+{
+    CharacterSlot* slot = FindSlot(characterId);
+    if (slot == NULL) return;
+
+    // Eased toward each frame in OnUpdate(), same as the old single-character
+    // _targetModelScale/_modelScale pair — avoids a "pop" when a trackpad
+    // fires many small scroll deltas in a row.
+    slot->targetScale = scale;
+}
+
+void LAppLive2DManager::SwitchSkin(int characterId)
+{
+    CharacterSlot* slot = FindSlot(characterId);
+    if (slot && slot->model)
+    {
+        slot->model->SwitchSkin();
+    }
+}
+
+int LAppLive2DManager::HitTestCharacter(csmFloat32 x, csmFloat32 y) const
+{
+    for (csmUint32 i = 0; i < _characters.GetSize(); i++)
+    {
+        LAppModel* model = _characters[i].model;
+        if (model == NULL) continue;
+
+        if (model->HitTest(HitAreaNameHead, x, y) || model->HitTest(HitAreaNameBody, x, y))
+        {
+            return _characters[i].id;
+        }
+    }
+    return -1;
+}
+
 LAppModel* LAppLive2DManager::GetModel(csmUint32 no) const
 {
-    if (no < _models.GetSize())
+    if (no < _characters.GetSize())
     {
-        return _models[no];
+        return _characters[no].model;
     }
 
     return NULL;
 }
 
+csmUint32 LAppLive2DManager::GetModelNum() const
+{
+    return _characters.GetSize();
+}
+
 void LAppLive2DManager::SetRenderTargetSize(csmUint32 width, csmUint32 height)
 {
-    for (csmUint32 i = 0; i < _models.GetSize(); i++)
+    for (csmUint32 i = 0; i < _characters.GetSize(); i++)
     {
-        LAppModel* model = GetModel(i);
-
-        model->SetRenderTargetSize(width, height);
+        LAppModel* model = _characters[i].model;
+        if (model)
+        {
+            model->SetRenderTargetSize(width, height);
+        }
     }
 }
 
 void LAppLive2DManager::OnDrag(csmFloat32 x, csmFloat32 y) const
 {
-    for (csmUint32 i = 0; i < _models.GetSize(); i++)
+    // Continuous "look at cursor" — applied to every character; each has its
+    // own drag state (base class CubismUserModel), so this doesn't fight
+    // between characters.
+    for (csmUint32 i = 0; i < _characters.GetSize(); i++)
     {
-        LAppModel* model = GetModel(i);
-
-        model->SetDragging(x, y);
+        LAppModel* model = _characters[i].model;
+        if (model)
+        {
+            model->SetDragging(x, y);
+        }
     }
 }
 
@@ -327,29 +489,32 @@ void LAppLive2DManager::OnTap(csmFloat32 x, csmFloat32 y)
         LAppPal::PrintLogLn("[APP]tap point: {x:%.2f y:%.2f}", x, y);
     }
 
-    for (csmUint32 i = 0; i < _models.GetSize(); i++)
+    for (csmUint32 i = 0; i < _characters.GetSize(); i++)
     {
-        if (_models[i]->HitTest(HitAreaNameHead, x, y))
+        LAppModel* model = _characters[i].model;
+        if (model == NULL) continue;
+
+        if (model->HitTest(HitAreaNameHead, x, y))
         {
             if (DebugLogEnable)
             {
                 LAppPal::PrintLogLn("[APP]hit area: [%s]", HitAreaNameHead);
             }
-            _models[i]->SetRandomExpression();
+            model->SetRandomExpression();
         }
-        else if (_models[i]->HitTest(HitAreaNameBody, x, y))
+        else if (model->HitTest(HitAreaNameBody, x, y))
         {
             if (DebugLogEnable)
             {
                 LAppPal::PrintLogLn("[APP]hit area: [%s]", HitAreaNameBody);
             }
-            _models[i]->StartRandomMotion(MotionGroupTapBody, PriorityNormal, FinishedMotion, BeganMotion);
-            _models[i]->SetRandomExpression();
+            model->StartRandomMotion(MotionGroupTapBody, PriorityNormal, FinishedMotion, BeganMotion);
+            model->SetRandomExpression();
         }
     }
 }
 
-void LAppLive2DManager::OnUpdate() const
+void LAppLive2DManager::OnUpdate()
 {
     int width, height;
     width = LAppDelegate::GetInstance()->GetWindowWidth(); height = LAppDelegate::GetInstance()->GetWindowHeight();
@@ -357,13 +522,15 @@ void LAppLive2DManager::OnUpdate() const
     // モデルで使用するオフスクリーン管理の開始処理
     Csm::Rendering::CubismOffscreenManager_OpenGLES2::GetInstance()->BeginFrameProcess();
 
-    csmUint32 modelCount = _models.GetSize();
-    for (csmUint32 i = 0; i < modelCount; ++i)
+    csmFloat32 deltaTime = LAppPal::GetDeltaTime();
+    csmUint32 characterCount = _characters.GetSize();
+    for (csmUint32 i = 0; i < characterCount; ++i)
     {
+        CharacterSlot& slot = _characters[i];
         CubismMatrix44 projection;
-        LAppModel* model = GetModel(i);
+        LAppModel* model = slot.model;
 
-        if (model->GetModel() == NULL)
+        if (model == NULL || model->GetModel() == NULL)
         {
             LAppPal::PrintLogLn("Failed to model->GetModel().");
             continue;
@@ -379,11 +546,15 @@ void LAppLive2DManager::OnUpdate() const
             projection.Scale(static_cast<float>(height) / static_cast<float>(width), 1.0f);
         }
 
-        LAppDelegate* app = LAppDelegate::GetInstance();
-        projection.ScaleRelative(app->_modelScale, app->_modelScale);
-        projection.TranslateRelative(app->_modelX, app->_modelY);
+        // Per-character zoom, eased toward targetScale and applied to the
+        // per-frame projection (not to the model's own persistent matrix —
+        // see LAppModel::SetCharacterOffset). Position is NOT applied here:
+        // it's already baked into the model's own matrix via
+        // SetCharacterOffset, which keeps hit-testing (which only inverts
+        // through that matrix) in sync with what's drawn.
+        slot.scale += (slot.targetScale - slot.scale) * (1.0f - std::exp(-15.0f * deltaTime));
+        projection.ScaleRelative(slot.scale, slot.scale);
 
-        // 必要があればここで乗算
         if (_viewMatrix != NULL)
         {
             projection.MultiplyByMatrix(_viewMatrix);
@@ -401,103 +572,6 @@ void LAppLive2DManager::OnUpdate() const
     Csm::Rendering::CubismOffscreenManager_OpenGLES2::GetInstance()->EndFrameProcess();
     // もし余っているオフスクリーンのリソースを解放したい場合行う処理
     Csm::Rendering::CubismOffscreenManager_OpenGLES2::GetInstance()->ReleaseStaleRenderTextures();
-}
-
-void LAppLive2DManager::NextScene()
-{
-    if (GetModelDirSize() == 0) return;
-    csmInt32 no = (_sceneIndex + 1) % GetModelDirSize();
-    ChangeScene(no);
-}
-
-void LAppLive2DManager::SwitchSkin()
-{
-    for (csmUint32 i = 0; i < _models.GetSize(); i++)
-    {
-        _models[i]->SwitchSkin();
-    }
-}
-
-void LAppLive2DManager::ChangeScene(Csm::csmInt32 index)
-{
-    if (GetModelDirSize() == 0 || index < 0 || index >= GetModelDirSize()) return;
-
-    _sceneIndex = index;
-    if (DebugLogEnable)
-    {
-        LAppPal::PrintLogLn("[APP]model index: %d", _sceneIndex);
-    }
-
-    // モデルがキャッシュにない場合は読み込む
-    if (_modelCache[index] == NULL)
-    {
-        const csmString& model = _modelDir[index];
-        LAppPal::PrintLogLn("[APP]loading model: %s", model.GetRawString());
-
-        csmString modelPath(_modelBasePath[index]);
-        modelPath += model;
-        modelPath.Append(1, '/');
-
-        const csmString& modelJsonName = _modelJsonName[index];
-
-        _modelCache[index] = new LAppModel();
-        _modelCache[index]->LoadAssets(modelPath.GetRawString(), modelJsonName.GetRawString());
-    }
-    else
-    {
-        LAppPal::PrintLogLn("[APP]using cached model: %s", _modelDir[index].GetRawString());
-    }
-
-    // 表示モデルリストを更新
-    _models.Clear();
-    _models.PushBack(_modelCache[index]);
-
-    // モデル数が4を超える場合、現在と次以外のキャッシュを解放
-    EvictExcessModels();
-
-    // 次のモデルを事前読み込み
-    PreloadNextModel();
-
-    /*
-     * モデル半透明表示を行うサンプルを提示する。
-     * ここでUSE_RENDER_TARGET、USE_MODEL_RENDER_TARGETが定義されている場合
-     * 別のレンダリングターゲットにモデルを描画し、描画結果をテクスチャとして別のスプライトに張り付ける。
-     */
-    {
-#if defined(USE_RENDER_TARGET)
-        // LAppViewの持つターゲットに描画を行う場合、こちらを選択
-        LAppView::SelectTarget useRenderTarget = LAppView::SelectTarget_ViewFrameBuffer;
-#elif defined(USE_MODEL_RENDER_TARGET)
-        // 各LAppModelの持つターゲットに描画を行う場合、こちらを選択
-        LAppView::SelectTarget useRenderTarget = LAppView::SelectTarget_ModelFrameBuffer;
-#else
-        // デフォルトのメインフレームバッファへレンダリングする(通常)
-        LAppView::SelectTarget useRenderTarget = LAppView::SelectTarget_None;
-#endif
-
-#if defined(USE_RENDER_TARGET) || defined(USE_MODEL_RENDER_TARGET)
-        // モデル個別にαを付けるサンプルとして、もう1体モデルを作成し、少し位置をずらす
-        _models.PushBack(new LAppModel());
-        _models[1]->LoadAssets(modelPath.GetRawString(), modelJsonName.GetRawString());
-        _models[1]->GetModelMatrix()->TranslateX(0.2f);
-#endif
-
-        float clearColor[3] = { 0.0f, 0.0f, 0.0f };
-
-        LAppDelegate::GetInstance()->GetView()->SwitchRenderingTarget(useRenderTarget);
-
-        if(useRenderTarget)
-        {
-            LAppDelegate::GetInstance()->GetView()->SwitchRenderingTarget(useRenderTarget);
-            // 背景クリア色
-            LAppDelegate::GetInstance()->GetView()->SetRenderTargetClearColor(clearColor[0], clearColor[1], clearColor[2]);
-        }
-    }
-}
-
-csmUint32 LAppLive2DManager::GetModelNum() const
-{
-    return _models.GetSize();
 }
 
 void LAppLive2DManager::SetViewMatrix(CubismMatrix44* m)

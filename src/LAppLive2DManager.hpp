@@ -13,26 +13,15 @@
 class LAppModel;
 
 /**
-* @brief サンプルアプリケーションにおいてCubismModelを管理するクラス<br>
-*         モデル生成と破棄、タップイベントの処理、モデル切り替えを行う。
+* @brief 複数のLive2Dキャラクターを同一ウィンドウで管理するクラス<br>
+*         各キャラクターは独立したLAppModelインスタンス、位置、ズームを持つ。
 *
 */
 class LAppLive2DManager
 {
 
 public:
-    /**
-    * @brief   クラスのインスタンス（シングルトン）を返す。<br>
-    *           インスタンスが生成されていない場合は内部でインスタンを生成する。
-    *
-    * @return  クラスのインスタンス
-    */
     static LAppLive2DManager* GetInstance();
-
-    /**
-    * @brief   クラスのインスタンス（シングルトン）を解放する。
-    *
-    */
     static void ReleaseInstance();
 
     /**
@@ -42,7 +31,7 @@ public:
     void SetUpModel();
 
     /**
-    * @brief   Resources フォルダにあるモデルフォルダ名を取得する
+    * @brief   Resources フォルダにあるモデルフォルダ名を取得する（モデルカタログ、全キャラクター共通）
     *
     */
     Csm::csmVector<Csm::csmString> GetModelDir() const;
@@ -54,119 +43,118 @@ public:
     Csm::csmInt32 GetModelDirSize() const;
 
     /**
-    * @brief   現在のシーンで保持しているモデルを返す
-    *
-    * @param[in]   no  モデルリストのインデックス値
-    * @return      モデルのインスタンスを返す。インデックス値が範囲外の場合はNULLを返す。
-    */
-    LAppModel* GetModel(Csm::csmUint32 no) const;
-
-    /**
      * @brief   モデルのオフスクリーンのサイズを設定
-     *
-     * @param[in]   width   ウインドウの幅
-     * @param[in]   height  ウインドウの高さ
      */
     void SetRenderTargetSize(Csm::csmUint32 width, Csm::csmUint32 height);
 
     /**
-    * @brief   現在のシーンで保持しているすべてのモデルを解放する
-    *
+    * @brief   現在表示中の全キャラクターを解放する
     */
     void ReleaseAllModel();
 
     /**
-    * @brief   画面をドラッグしたときの処理
-    *
-    * @param[in]   x   画面のX座標
-    * @param[in]   y   画面のY座標
+    * @brief   画面をドラッグしたときの処理（見つめる方向の更新、全キャラクター共通）
     */
     void OnDrag(Csm::csmFloat32 x, Csm::csmFloat32 y) const;
 
     /**
-    * @brief   画面をタップしたときの処理
-    *
-    * @param[in]   x   画面のX座標
-    * @param[in]   y   画面のY座標
+    * @brief   画面をタップしたときの処理。ヒットしたキャラクターのみモーション/表情を発火する。
     */
     void OnTap(Csm::csmFloat32 x, Csm::csmFloat32 y);
 
     /**
-    * @brief   画面を更新するときの処理
-    *          モデルの更新処理および描画処理を行う
+    * @brief   画面を更新するときの処理。全キャラクターの更新処理および描画処理を行う<br>
+    *           （キャラクターごとのズームをtargetScaleへ毎フレームイージングするため非const）
     */
-    void OnUpdate() const;
+    void OnUpdate();
 
     /**
-    * @brief   次のシーンに切り替える<br>
-    *           サンプルアプリケーションではモデルセットの切り替えを行う。
-    */
-    void NextScene();
-
-    /**
-    * @brief   現在のモデルのスキンを切り替える
-    */
-    void SwitchSkin();
-
-    /**
-    * @brief   シーンを切り替える<br>
-    *           サンプルアプリケーションではモデルセットの切り替えを行う。
-    */
-    void ChangeScene(Csm::csmInt32 index);
-
-    /**
-     * @brief   モデル個数を得る
-     * @return  所持モデル個数
-     */
-    Csm::csmUint32 GetModelNum() const;
-
-    /**
-     * @brief   viewMatrixをセットする
+     * @brief   viewMatrixをセットする（ウィンドウ全体で共有）
      */
     void SetViewMatrix(Live2D::Cubism::Framework::CubismMatrix44* m);
 
+    // ─── Character roster ──────────────────────────────────────────────
+
     /**
-     * @brief   Get the current scene (model) index.
+     * @brief   キャラクターを追加する。
+     *
+     * @param[in]   modelDirIndex   GetModelDir()のインデックス
+     * @param[in]   hasPosition     x/yを明示指定する場合はtrue。falseなら自動横並び配置される。
+     * @param[in]   x, y            明示位置（画面座標、おおよそ -1.0〜1.0）
+     * @param[in]   scale           ズーム倍率
+     * @return      新しいキャラクターの安定ID。modelDirIndexが不正な場合は-1。
      */
-    Csm::csmInt32 GetSceneIndex() const { return _sceneIndex; }
+    int AddCharacter(Csm::csmInt32 modelDirIndex, bool hasPosition, Csm::csmFloat32 x, Csm::csmFloat32 y, Csm::csmFloat32 scale);
+
+    /**
+     * @brief   キャラクターを削除する。
+     * @return  見つかって削除できた場合true。
+     */
+    bool RemoveCharacter(int characterId);
+
+    Csm::csmInt32 GetCharacterCount() const;
+
+    /// ロスター内の位置(0-indexed)からキャラクターIDを取得する。範囲外は-1。
+    int GetCharacterIdAt(Csm::csmInt32 index) const;
+
+    LAppModel* GetCharacterModel(int characterId) const;
+    Csm::csmInt32 GetCharacterModelDirIndex(int characterId) const;
+    Csm::csmFloat32 GetCharacterX(int characterId) const;
+    Csm::csmFloat32 GetCharacterY(int characterId) const;
+    Csm::csmFloat32 GetCharacterZoom(int characterId) const;
+
+    /// 指定キャラクターのモデルをその場で切り替える（位置は保持される）。
+    void SetCharacterModel(int characterId, Csm::csmInt32 modelDirIndex);
+    void NextCharacterModel(int characterId);
+    void PrevCharacterModel(int characterId);
+
+    /// 指定キャラクターの位置を設定する（ドラッグ後は自動配置の対象から外れる）。
+    void SetCharacterPosition(int characterId, Csm::csmFloat32 x, Csm::csmFloat32 y);
+    void SetCharacterZoom(int characterId, Csm::csmFloat32 scale);
+    void SwitchSkin(int characterId);
+
+    /**
+     * @brief   指定した画面座標にある（Head/Bodyの当たり判定にヒットする）キャラクターを探す。
+     * @return  見つかったキャラクターのID、なければ-1。
+     */
+    int HitTestCharacter(Csm::csmFloat32 x, Csm::csmFloat32 y) const;
+
+    // ロスター内の位置でアクセスするレガシーAPI（LAppView.cppのUSE_RENDER_TARGETサンプルパス用）。
+    LAppModel* GetModel(Csm::csmUint32 no) const;
+    Csm::csmUint32 GetModelNum() const;
 
 private:
-    /**
-    * @brief  コンストラクタ
-    */
     LAppLive2DManager();
-
-    /**
-    * @brief  デストラクタ
-    */
     virtual ~LAppLive2DManager();
 
-    /**
-    * @brief   指定ディレクトリからモデルをスキャンする
-    */
     void ScanModelsInDir(const Csm::csmString& basePath);
 
-    /**
-    * @brief   モデルキャッシュを初期化する
-    */
-    void InitModelCache();
+    /// modelDirIndexからLAppModelインスタンスを生成・ロードする。所有権は呼び出し側。
+    LAppModel* CreateModelInstance(Csm::csmInt32 modelDirIndex) const;
 
-    /**
-    * @brief   次のモデルを事前読み込みする
-    */
-    void PreloadNextModel();
+    /// 自動配置対象(autoPositioned)のキャラクターを横一列に再配置する。
+    void ReflowAutoLayout();
 
-    /**
-    * @brief   モデル数が4を超える場合、現在と次以外のキャッシュを解放する
-    */
-    void EvictExcessModels();
+    struct CharacterSlot
+    {
+        int id;
+        Csm::csmInt32 modelDirIndex;
+        LAppModel* model;
+        Csm::csmFloat32 posX;
+        Csm::csmFloat32 posY;
+        Csm::csmFloat32 scale;       ///< current, eased-toward-targetScale each frame in OnUpdate()
+        Csm::csmFloat32 targetScale; ///< set by SetCharacterZoom(); scale eases toward this
+        bool autoPositioned;
+    };
 
-    Csm::CubismMatrix44* _viewMatrix; ///< モデル描画に用いるView行列
-    Csm::csmVector<LAppModel*> _models; ///< 表示中モデルのコンテナ（所有権はキャッシュ側）
-    Csm::csmVector<LAppModel*> _modelCache; ///< モデルキャッシュ（インデックス対応、NULLは未読み込み）
-    Csm::csmInt32 _sceneIndex; ///< 表示するシーンのインデックス値
+    CharacterSlot* FindSlot(int characterId);
+    const CharacterSlot* FindSlot(int characterId) const;
 
-    Csm::csmVector<Csm::csmString> _modelDir; ///< モデルディレクトリ名のコンテナ
+    Csm::CubismMatrix44* _viewMatrix; ///< モデル描画に用いるView行列（ウィンドウ共通）
+    Csm::csmVector<CharacterSlot> _characters; ///< 表示中キャラクターのリスト
+    int _nextCharacterId; ///< 次に割り当てるキャラクターID
+
+    Csm::csmVector<Csm::csmString> _modelDir; ///< モデルディレクトリ名のコンテナ（カタログ、全キャラクター共通）
     Csm::csmVector<Csm::csmString> _modelBasePath; ///< 各モデルの親ディレクトリパス
     Csm::csmVector<Csm::csmString> _modelJsonName; ///< 各モデルの.model3.jsonファイル名
 };

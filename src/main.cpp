@@ -8,6 +8,7 @@
 #include "LAppDelegate.hpp"
 #include "LAppDefine.hpp"
 #include "LAppConfig.hpp"
+#include "LAppLive2DManager.hpp"
 #include <cstdlib>
 #include <unistd.h>
 #include <sys/types.h>
@@ -105,10 +106,36 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    // Apply config values to delegate
-    LAppDelegate::GetInstance()->_modelScale = config.modelScale;
-    LAppDelegate::GetInstance()->_modelX = config.modelX;
-    LAppDelegate::GetInstance()->_modelY = config.modelY;
+    // Build the initial character roster from config.
+    LAppLive2DManager* mgr = LAppLive2DManager::GetInstance();
+    Csm::csmVector<Csm::csmString> dirs = mgr->GetModelDir();
+
+    bool anyAdded = false;
+    for (size_t i = 0; i < config.characters.size(); i++) {
+        const CharacterConfig& c = config.characters[i];
+
+        Csm::csmInt32 modelIndex = -1;
+        for (Csm::csmInt32 j = 0; j < (Csm::csmInt32)dirs.GetSize(); j++) {
+            if (strcmp(dirs[j].GetRawString(), c.model.c_str()) == 0) {
+                modelIndex = j;
+                break;
+            }
+        }
+
+        if (modelIndex < 0) {
+            printf("[APP]Character model not found, skipping: %s\n", c.model.c_str());
+            continue;
+        }
+
+        mgr->AddCharacter(modelIndex, c.hasPosition, c.x, c.y, c.scale);
+        anyAdded = true;
+    }
+
+    if (!anyAdded && dirs.GetSize() > 0) {
+        // No usable "characters" config at all — show the first catalog
+        // model rather than an empty window.
+        mgr->AddCharacter(0, false, 0.0f, 0.0f, 1.0f);
+    }
 
     LAppDelegate::GetInstance()->Run();
 

@@ -199,11 +199,8 @@ void LAppDelegate::Run()
 
         LAppPal::UpdateTime();
 
-        // Ease _modelScale toward the scroll-set target instead of jumping
-        // straight there — a trackpad fires a scroll delta per pixel, so
-        // applying each one instantly made zoom feel like a stack of pops.
-        float scaleDeltaTime = LAppPal::GetDeltaTime();
-        _modelScale += (_targetModelScale - _modelScale) * (1.0f - std::exp(-15.0f * scaleDeltaTime));
+        // Per-character zoom easing now happens inside
+        // LAppLive2DManager::OnUpdate(), called from _view->Render() below.
 
         // 画面の初期化 -> Transparent!
         glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
@@ -245,10 +242,7 @@ LAppDelegate::LAppDelegate():
     _windowStartY(0),
     _lookCenterX(0.5f),
     _lookCenterY(0.5f),
-    _modelScale(1.0f),
-    _targetModelScale(1.0f),
-    _modelX(0.0f),
-    _modelY(0.0f)
+    _draggedCharacterId(-1)
 {
     _executeAbsolutePath = "";
     _view = new LAppView();
@@ -303,6 +297,12 @@ void LAppDelegate::OnMouseCallBack(void* window, int button, int action, int mod
             _captured = true;
             _view->OnTouchesBegan(_mouseX, _mouseY);
 
+            // Which character (if any) this drag gesture targets — routes
+            // subsequent move deltas to only that character.
+            float sx = _view->TransformScreenX(_mouseX);
+            float sy = _view->TransformScreenY(_mouseY);
+            _draggedCharacterId = LAppLive2DManager::GetInstance()->HitTestCharacter(sx, sy);
+
             // Start drag
             _isDraggingWindow = true;
             double curX, curY;
@@ -336,21 +336,15 @@ void LAppDelegate::OnMouseCallBack(void* window, int button, int action, int mod
                     SwitchWaylandOutputToMonitor(hx, hy);
 #endif
                     int new_idx = _wlContext.current_output_index;
-
-                    if (old_idx != new_idx) {
-                        PlatformContext::OutputInfo* out = _wlContext.outputs[old_idx];
-                        PlatformContext::OutputInfo* new_out = _wlContext.outputs[new_idx];
-                        
-                        // Keep physical height identical across different resolution monitors
-                        _modelScale *= (float)out->height / (float)new_out->height;
-                        _targetModelScale = _modelScale;
-
-                        float local_x = hx - new_out->x;
-                        float local_y = hy - new_out->y;
-
-                        _modelX = (local_x - new_out->width * 0.5f) / (new_out->height * 0.5f) / _modelScale;
-                        _modelY = -(local_y - new_out->height * 0.5f) / (new_out->height * 0.5f) / _modelScale;
-                    }
+                    // ponytail: dragging a character across a monitor boundary
+                    // still moves the whole window (all characters move with
+                    // it — inherent to sharing one OS window). It no longer
+                    // rescales/repositions a single "the model" on arrival the
+                    // way the old single-character build did, since with
+                    // multiple independently-positioned characters there's no
+                    // one position to rescale. Per-character re-layout for the
+                    // new monitor's resolution, if wanted, would go here.
+                    (void)old_idx; (void)new_idx;
                 }
 
                 _isDraggingWindow = false;
@@ -359,32 +353,45 @@ void LAppDelegate::OnMouseCallBack(void* window, int button, int action, int mod
                 curX = _mouseX; curY = _mouseY;
                 int dx = abs(static_cast<int>(curX) - _windowStartX);
                 int dy = abs(static_cast<int>(curY) - _windowStartY);
-                LAppPal::PrintLogLn("[Debug] Tap check: cur(%d,%d) start(%d,%d) dx=%d dy=%d", 
+                LAppPal::PrintLogLn("[Debug] Tap check: cur(%d,%d) start(%d,%d) dx=%d dy=%d",
                     static_cast<int>(curX), static_cast<int>(curY), _windowStartX, _windowStartY, dx, dy);
                 if (dx < 10 && dy < 10)
                 {
                     LAppPal::PrintLogLn("[Event] Model Tapped: Cursor (%d, %d)", static_cast<int>(curX), static_cast<int>(curY));
                       _view->OnTouchesEnded(_mouseX, _mouseY); // Trigger Tap
                 }
-                else 
+                else
                 {
                     LAppLive2DManager::GetInstance()->OnDrag(0.0f, 0.0f); // End look
                 }
+
+                _draggedCharacterId = -1;
             }
         }
     }
     else if (button == 1 && action == 0)
     {
-        // Switch Models
-        LAppPal::PrintLogLn("[Event] Switch Model Triggered");
-          LAppPal::PrintLogLn("[Event] Switch Model Triggered");
-          LAppLive2DManager::GetInstance()->NextScene();
+        // Switch this character's model (only the one under the cursor)
+        float sx = _view->TransformScreenX(_mouseX);
+        float sy = _view->TransformScreenY(_mouseY);
+        int id = LAppLive2DManager::GetInstance()->HitTestCharacter(sx, sy);
+        if (id >= 0)
+        {
+            LAppPal::PrintLogLn("[Event] Switch Model Triggered (character %d)", id);
+            LAppLive2DManager::GetInstance()->NextCharacterModel(id);
+        }
     }
     else if (button == 2 && action == 1)
     {
-        // Switch Skin
-        LAppPal::PrintLogLn("[Event] Switch Skin Triggered");
-        LAppLive2DManager::GetInstance()->SwitchSkin();
+        // Switch this character's skin (only the one under the cursor)
+        float sx = _view->TransformScreenX(_mouseX);
+        float sy = _view->TransformScreenY(_mouseY);
+        int id = LAppLive2DManager::GetInstance()->HitTestCharacter(sx, sy);
+        if (id >= 0)
+        {
+            LAppPal::PrintLogLn("[Event] Switch Skin Triggered (character %d)", id);
+            LAppLive2DManager::GetInstance()->SwitchSkin(id);
+        }
     }
 }
 
@@ -398,32 +405,36 @@ void LAppDelegate::OnMouseCallBack(void* window, double x, double y)
         return;
     }
 
-    // Calculate viewX / viewY based on look center
+    // Calculate viewX / viewY based on look center. Shared across every
+    // character (each has its own drag/look state — see
+    // LAppLive2DManager::OnDrag), so this is deliberately not per-character.
     int width, height;
     width = _windowWidth; height = _windowHeight;
-    
-    float faceCenterX = ((float)width * _lookCenterX) + (_modelX * _modelScale * ((float)height / 2.0f));
-    float faceCenterY = ((float)height * _lookCenterY) - (_modelY * _modelScale * ((float)height / 2.0f));
+
+    float faceCenterX = (float)width * _lookCenterX;
+    float faceCenterY = (float)height * _lookCenterY;
 
     float viewX = (_mouseX - faceCenterX) / ((float)width / 2.0f);
     float viewY = -(_mouseY - faceCenterY) / ((float)height / 2.0f);
 
     LAppLive2DManager::GetInstance()->OnDrag(viewX, viewY);
 
-    if (_captured && _isDraggingWindow)
+    if (_captured && _isDraggingWindow && _draggedCharacterId >= 0)
     {
         double curX = x;
         double curY = y;
         int deltaX = static_cast<int>(curX) - _dragStartX;
         int deltaY = static_cast<int>(curY) - _dragStartY;
-        
+
         if (deltaX != 0 || deltaY != 0) {
             float dx_logical = (float)deltaX / (float)_windowHeight * 2.0f;
             float dy_logical = -(float)deltaY / (float)_windowHeight * 2.0f; // Y axis is flipped in OpenGL
-            
-            _modelX += dx_logical / _modelScale;
-            _modelY += dy_logical / _modelScale;
-            
+
+            LAppLive2DManager* mgr = LAppLive2DManager::GetInstance();
+            float newX = mgr->GetCharacterX(_draggedCharacterId) + dx_logical;
+            float newY = mgr->GetCharacterY(_draggedCharacterId) + dy_logical;
+            mgr->SetCharacterPosition(_draggedCharacterId, newX, newY);
+
             _dragStartX = static_cast<int>(curX);
             _dragStartY = static_cast<int>(curY);
         }
@@ -432,13 +443,23 @@ void LAppDelegate::OnMouseCallBack(void* window, double x, double y)
 
 void LAppDelegate::OnScrollCallBack(void* window, double xoffset, double yoffset)
 {
+    if (_view == NULL) return;
+
+    float sx = _view->TransformScreenX(_mouseX);
+    float sy = _view->TransformScreenY(_mouseY);
+    int id = LAppLive2DManager::GetInstance()->HitTestCharacter(sx, sy);
+    if (id < 0) return;
+
     // Trackpad fires one event per ~pixel of scroll, each clamped to yoffset
     // ±1 — 10%/event compounded over a whole gesture blew past any usable
     // range almost instantly. 2%/event still feels responsive.
     float scale = 1.0f + (yoffset * 0.02f);
-    _targetModelScale *= scale;
-    if (_targetModelScale < 0.1f) _targetModelScale = 0.1f;
-    if (_targetModelScale > 10.0f) _targetModelScale = 10.0f;
+
+    LAppLive2DManager* mgr = LAppLive2DManager::GetInstance();
+    float target = mgr->GetCharacterZoom(id) * scale;
+    if (target < 0.1f) target = 0.1f;
+    if (target > 10.0f) target = 10.0f;
+    mgr->SetCharacterZoom(id, target);
 }
 
 void LAppDelegate::GetClientSize(int& rWidth, int& rHeight)

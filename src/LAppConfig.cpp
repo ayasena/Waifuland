@@ -137,6 +137,92 @@ std::vector<std::string> LAppConfig::ParseStringArray(const std::string& s, cons
     return result;
 }
 
+std::vector<CharacterConfig> LAppConfig::ParseCharacters(const std::string& s)
+{
+    std::vector<CharacterConfig> result;
+
+    std::string pattern = "\"characters\"";
+    size_t pos = s.find(pattern);
+    if (pos == std::string::npos) return result;
+
+    pos = s.find('[', pos + pattern.size());
+    if (pos == std::string::npos) return result;
+
+    // Find the matching closing bracket for the array, tracking nested
+    // []/{} and skipping over quoted strings.
+    size_t end = pos;
+    int depth = 0;
+    bool inString = false;
+    for (size_t i = pos; i < s.size(); i++)
+    {
+        char c = s[i];
+        if (inString)
+        {
+            if (c == '\\' && i + 1 < s.size()) { i++; continue; }
+            if (c == '"') inString = false;
+            continue;
+        }
+        if (c == '"') { inString = true; continue; }
+        if (c == '[' || c == '{') depth++;
+        else if (c == ']' || c == '}')
+        {
+            depth--;
+            if (depth == 0) { end = i; break; }
+        }
+    }
+    if (end <= pos) return result;
+
+    std::string arrayContent = s.substr(pos + 1, end - pos - 1);
+
+    // Split into top-level {...} character objects.
+    int objDepth = 0;
+    bool inStr = false;
+    size_t objStart = std::string::npos;
+    for (size_t i = 0; i < arrayContent.size(); i++)
+    {
+        char c = arrayContent[i];
+        if (inStr)
+        {
+            if (c == '\\' && i + 1 < arrayContent.size()) { i++; continue; }
+            if (c == '"') inStr = false;
+            continue;
+        }
+        if (c == '"') { inStr = true; continue; }
+
+        if (c == '{')
+        {
+            if (objDepth == 0) objStart = i;
+            objDepth++;
+        }
+        else if (c == '}')
+        {
+            objDepth--;
+            if (objDepth == 0 && objStart != std::string::npos)
+            {
+                std::string obj = arrayContent.substr(objStart, i - objStart + 1);
+
+                CharacterConfig cc;
+                cc.model = ParseStringValue(obj, "model");
+                bool hasX = obj.find("\"x\"") != std::string::npos;
+                bool hasY = obj.find("\"y\"") != std::string::npos;
+                cc.x = ParseFloatValue(obj, "x", 0.0f);
+                cc.y = ParseFloatValue(obj, "y", 0.0f);
+                cc.hasPosition = hasX || hasY;
+                cc.scale = ParseFloatValue(obj, "scale", 1.0f);
+
+                if (!cc.model.empty())
+                {
+                    result.push_back(cc);
+                }
+
+                objStart = std::string::npos;
+            }
+        }
+    }
+
+    return result;
+}
+
 std::string LAppConfig::StripComments(const std::string& s)
 {
     std::string result;
@@ -201,6 +287,21 @@ bool LAppConfig::LoadFromFile(const std::string& path)
     modelY = ParseFloatValue(content, "model_y", 0.0f);
     windowWidth = ParseIntValue(content, "window_width", 1900);
     windowHeight = ParseIntValue(content, "window_height", 1000);
+
+    characters = ParseCharacters(content);
+    if (characters.empty() && !defaultModel.empty())
+    {
+        // Legacy single-character config (no "characters" array): synthesize
+        // one character from default_model/model_scale/model_x/model_y so
+        // old config files keep behaving the same.
+        CharacterConfig cc;
+        cc.model = defaultModel;
+        cc.hasPosition = true;
+        cc.x = modelX;
+        cc.y = modelY;
+        cc.scale = modelScale;
+        characters.push_back(cc);
+    }
 
     return true;
 }

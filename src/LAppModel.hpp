@@ -147,6 +147,20 @@ public:
      */
     Csm::ICubismModelSetting* GetModelSetting() const { return _modelSetting; }
 
+    /**
+     * @brief   Apply a per-character position offset on top of this model's own
+     *          layout position (absolute, not compounding — safe to call
+     *          repeatedly, e.g. once per drag event, and again after a model
+     *          swap). Zoom is intentionally not handled here; it's applied to
+     *          the per-frame projection matrix in LAppLive2DManager::OnUpdate()
+     *          instead, so it doesn't fight the portrait-canvas SetWidth(2.0f)
+     *          correction that also runs there.
+     *
+     * @param[in]   x       X offset in the same units as the model's own layout position
+     * @param[in]   y       Y offset in the same units as the model's own layout position
+     */
+    void SetCharacterOffset(Csm::csmFloat32 x, Csm::csmFloat32 y);
+
 protected:
     /**
      *  @brief  モデルを描画する処理。モデルを描画する空間のView-Projection行列を渡す。
@@ -227,6 +241,11 @@ private:
     Csm::csmFloat32 _lastExpressionTime; ///< Time when the last expression was set
     static const Csm::csmFloat32 ExpressionTimeoutSeconds; ///< Seconds before expression reverts to default
     Csm::csmInt32 _nextExpressionIndex; ///< Round-robin index for cycling expressions
+
+    /// Layout-derived position captured right after LoadAssets(), used as the
+    /// base that SetCharacterOffset() applies a per-character offset on top of.
+    Csm::csmFloat32 _baseTranslateX;
+    Csm::csmFloat32 _baseTranslateY;
 
     /// All parameter IDs found across skin motion groups, used to reset before switching
     Csm::csmVector<const Csm::CubismId*> _allSkinParamIds;
