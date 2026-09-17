@@ -21,6 +21,11 @@ struct MacOSContext {
 
     int width = 0;
     int height = 0;
+
+    // Retina backing-store pixel size (>= width/height on HiDPI displays);
+    // glViewport and glReadPixels must use this, not the logical width/height.
+    int backingWidth = 0;
+    int backingHeight = 0;
 };
 
 bool GetGlobalCursorPosition(int& x, int& y);

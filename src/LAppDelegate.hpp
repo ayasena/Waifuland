@@ -171,6 +171,7 @@ public:
     void RequestMoveToFocusedMonitor() { _pendingFocusMove = true; }
 
     float _modelScale;
+    float _targetModelScale;     ///< scroll writes here; _modelScale eases toward it each frame
     float _modelX;
     float _modelY;
 

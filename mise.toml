@@ -15,6 +15,7 @@ cmake = "3.30"
 "apt:libgl-dev" = {}
 "apt:curl" = {}
 "apt:unzip" = {}
+"apt:socat" = {}
 
 "pacman:base-devel" = {}
 "pacman:pkgconf" = {}
@@ -24,6 +25,7 @@ cmake = "3.30"
 "pacman:egl-wayland" = {}
 "pacman:curl" = {}
 "pacman:unzip" = {}
+"pacman:socat" = {}
 
 "dnf:gcc-c++" = {}
 "dnf:pkgconf-pkg-config" = {}
@@ -33,9 +35,11 @@ cmake = "3.30"
 "dnf:mesa-libGL-devel" = {}
 "dnf:curl" = {}
 "dnf:unzip" = {}
+"dnf:socat" = {}
 
 "brew:cmake" = {}
 "brew:curl" = {}
+"brew:socat" = {}
 
 [tasks.bootstrap]
 description = "Sanity-check the toolchain after `mise bootstrap`"

@@ -113,7 +113,11 @@ bool LAppDelegate::Initialize()
     glEnable(GL_BLEND);
     glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 
+#ifdef __APPLE__
+    glViewport(0, 0, _wlContext.backingWidth, _wlContext.backingHeight);
+#else
     glViewport(0, 0, _windowWidth, _windowHeight);
+#endif
 
     // Cubism3の初期化
     InitializeCubism();
@@ -169,7 +173,11 @@ void LAppDelegate::Run()
             _windowHeight = height;
         }
 
+#ifdef __APPLE__
+        glViewport(0, 0, _wlContext.backingWidth, _wlContext.backingHeight);
+#else
         glViewport(0, 0, _windowWidth, _windowHeight);
+#endif
 
         if (_pendingFocusMove) {
             _pendingFocusMove = false;
@@ -190,6 +198,12 @@ void LAppDelegate::Run()
         LAppIPC::GetInstance()->Poll();
 
         LAppPal::UpdateTime();
+
+        // Ease _modelScale toward the scroll-set target instead of jumping
+        // straight there — a trackpad fires a scroll delta per pixel, so
+        // applying each one instantly made zoom feel like a stack of pops.
+        float scaleDeltaTime = LAppPal::GetDeltaTime();
+        _modelScale += (_targetModelScale - _modelScale) * (1.0f - std::exp(-15.0f * scaleDeltaTime));
 
         // 画面の初期化 -> Transparent!
         glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
@@ -232,6 +246,7 @@ LAppDelegate::LAppDelegate():
     _lookCenterX(0.5f),
     _lookCenterY(0.5f),
     _modelScale(1.0f),
+    _targetModelScale(1.0f),
     _modelX(0.0f),
     _modelY(0.0f)
 {
@@ -328,10 +343,11 @@ void LAppDelegate::OnMouseCallBack(void* window, int button, int action, int mod
                         
                         // Keep physical height identical across different resolution monitors
                         _modelScale *= (float)out->height / (float)new_out->height;
+                        _targetModelScale = _modelScale;
 
                         float local_x = hx - new_out->x;
                         float local_y = hy - new_out->y;
-                        
+
                         _modelX = (local_x - new_out->width * 0.5f) / (new_out->height * 0.5f) / _modelScale;
                         _modelY = -(local_y - new_out->height * 0.5f) / (new_out->height * 0.5f) / _modelScale;
                     }
@@ -416,10 +432,13 @@ void LAppDelegate::OnMouseCallBack(void* window, double x, double y)
 
 void LAppDelegate::OnScrollCallBack(void* window, double xoffset, double yoffset)
 {
-    float scale = 1.0f + (yoffset * 0.1f);
-    _modelScale *= scale;
-    if (_modelScale < 0.1f) _modelScale = 0.1f;
-    if (_modelScale > 10.0f) _modelScale = 10.0f;
+    // Trackpad fires one event per ~pixel of scroll, each clamped to yoffset
+    // ±1 — 10%/event compounded over a whole gesture blew past any usable
+    // range almost instantly. 2%/event still feels responsive.
+    float scale = 1.0f + (yoffset * 0.02f);
+    _targetModelScale *= scale;
+    if (_targetModelScale < 0.1f) _targetModelScale = 0.1f;
+    if (_targetModelScale > 10.0f) _targetModelScale = 10.0f;
 }
 
 void LAppDelegate::GetClientSize(int& rWidth, int& rHeight)

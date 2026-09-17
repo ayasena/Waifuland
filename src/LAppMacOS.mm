@@ -110,6 +110,9 @@ bool SetupMacOSContext(MacOSContext* mac, int /*width*/, int /*height*/) {
         NSOpenGLPFAAlphaSize, 8,
         NSOpenGLPFADepthSize, 24,
         NSOpenGLPFAOpenGLProfile, NSOpenGLProfileVersionLegacy,
+        NSOpenGLPFAMultisample,
+        NSOpenGLPFASampleBuffers, 1,
+        NSOpenGLPFASamples, 4,
         0
     };
     NSOpenGLPixelFormat* pixelFormat = [[NSOpenGLPixelFormat alloc] initWithAttributes:attrs];
@@ -121,7 +124,7 @@ bool SetupMacOSContext(MacOSContext* mac, int /*width*/, int /*height*/) {
     WaifulandOverlayView* view = [[WaifulandOverlayView alloc] initWithFrame:NSMakeRect(0, 0, frame.size.width, frame.size.height)
                                                                   pixelFormat:pixelFormat];
     [pixelFormat release]; // the view retains it internally
-    [view setWantsBestResolutionOpenGLSurface:NO]; // Track logical points, matching RenderTargetWidth/Height semantics
+    [view setWantsBestResolutionOpenGLSurface:YES]; // Render at native Retina pixel density instead of blurring 1x up
 
     // -openGLContext is a "get" accessor (not owned); retain explicitly since
     // we hold onto it for the app's lifetime in a manual-refcount (non-ARC) file.
@@ -133,6 +136,7 @@ bool SetupMacOSContext(MacOSContext* mac, int /*width*/, int /*height*/) {
 
     [window setContentView:view];
     [glContext makeCurrentContext];
+    glEnable(GL_MULTISAMPLE);
 
     [window orderFrontRegardless];
     [NSApp activateIgnoringOtherApps:YES];
@@ -182,8 +186,11 @@ bool SetupMacOSContext(MacOSContext* mac, int /*width*/, int /*height*/) {
     mac->glContext = (void*)glContext;
     mac->width = (int)frame.size.width;
     mac->height = (int)frame.size.height;
+    NSSize backingSize = [view convertSizeToBacking:frame.size];
+    mac->backingWidth = (int)backingSize.width;
+    mac->backingHeight = (int)backingSize.height;
 
-    LAppPal::PrintLogLn("[macOS] Overlay window ready: %dx%d on %zu display(s)", mac->width, mac->height, mac->outputs.size());
+    LAppPal::PrintLogLn("[macOS] Overlay window ready: %dx%d (%dx%d px) on %zu display(s)", mac->width, mac->height, mac->backingWidth, mac->backingHeight, mac->outputs.size());
     return true;
 }
 
@@ -258,8 +265,12 @@ void UpdateMacOSInputRegion(MacOSContext* mac, int hx, int hy) {
         // every frame, e.g. ~20MB + a GPU pipeline stall on a Retina
         // display, 60x/sec). GL_BGRA matches macOS's native framebuffer
         // layout and avoids the driver-side per-pixel RGBA conversion.
+        // Framebuffer is at Retina backing-pixel density; scale the point
+        // coordinate up to match (1x on non-Retina, where this is a no-op).
+        int pixelX = localX * mac->backingWidth / width;
+        int pixelY = localY * mac->backingHeight / height;
         unsigned char pixel[4];
-        glReadPixels(localX, localY, 1, 1, GL_BGRA, GL_UNSIGNED_BYTE, pixel);
+        glReadPixels(pixelX, pixelY, 1, 1, GL_BGRA, GL_UNSIGNED_BYTE, pixel);
         opaque = pixel[3] > 10;
     }
 
@@ -294,6 +305,9 @@ void SwitchMacOSOutputToMonitor(int hx, int hy) {
             [view setFrame:NSMakeRect(0, 0, frame.size.width, frame.size.height)];
             g_mac->width = (int)frame.size.width;
             g_mac->height = (int)frame.size.height;
+            NSSize backingSize = [view convertSizeToBacking:frame.size];
+            g_mac->backingWidth = (int)backingSize.width;
+            g_mac->backingHeight = (int)backingSize.height;
             break;
         }
     }
