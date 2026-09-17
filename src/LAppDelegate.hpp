@@ -9,7 +9,7 @@
 
 #include <string>
 #include <GL/glew.h>
-#include "LAppWayland.hpp"
+#include "LAppPlatform.hpp"
 #include "Type/csmVector.hpp"
 #include "LAppAllocator_Common.hpp"
 
@@ -77,9 +77,9 @@ public:
     static void GetClientSize(int& rWidth, int& rHeight);
 
     /**
-    * @brief   WaylandContextを取得する。
+    * @brief   PlatformContextを取得する。
     */
-    WaylandContext* GetWindow() { return &_wlContext; }
+    PlatformContext* GetWindow() { return &_wlContext; }
 
     /**
     * @brief   View情報を取得する。
@@ -143,7 +143,7 @@ private:
 
     LAppAllocator_Common _cubismAllocator;              ///< Cubism3 Allocator
     Csm::CubismFramework::Option _cubismOption;         ///< Cubism3 Option
-    WaylandContext _wlContext;                          ///< Wayland Context
+    PlatformContext _wlContext;                         ///< Platform (Wayland/macOS) context
     LAppView* _view;                                    ///< View情報
     bool _captured;                              ///< クリックしているか
     float _mouseX;                               ///< マウスX座標

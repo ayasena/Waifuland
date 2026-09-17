@@ -2,9 +2,9 @@
 
 > **Disclaimer:** This repository is "vibe coded". Please use with caution.
 
-A Linux desktop Live2D model viewer that renders Live2D characters as transparent Wayland overlay windows using the `wlr-layer-shell` protocol.
+A desktop Live2D model viewer that renders Live2D characters as transparent overlay windows always on top of your desktop — on Linux via Wayland's `wlr-layer-shell` protocol, and on macOS via a native Cocoa/Quartz overlay window.
 
-Live2D models float on your desktop with click-through transparency — only the model itself receives input. Built with the Live2D Cubism SDK for Native, OpenGL (EGL), and native Wayland (no X11, no GLFW windowing).
+Live2D models float on your desktop with click-through transparency — only the model itself receives input. Built with the Live2D Cubism SDK for Native and OpenGL, using native windowing on each platform (Wayland layer-shell on Linux, Cocoa/NSOpenGL on macOS — no X11, no GLFW).
 
 <!-- Screenshot or GIF placeholder: place a demo image/gif here -->
 <!-- ![Waifuland Demo](docs/demo.gif) -->
@@ -28,10 +28,10 @@ https://github.com/user-attachments/assets/95dfdedc-4957-4bb7-b79f-f3addd97a6db
 
 ## Features
 
-- **Wayland-native overlay** — renders as a layer-shell surface, always on top of your desktop
+- **Native overlay on Linux & macOS** — a Wayland layer-shell surface on Linux, a borderless floating Cocoa window on macOS; always on top of your desktop
 - **Click-through transparency** — only the Live2D model area receives pointer events; everything else passes through
-- **Multi-compositor support** — works on any Wayland compositor supporting `wlr-layer-shell` (Hyprland, Sway, river, etc.)
-- **Multi-output support** — switch between monitors (Hyprland)
+- **Multi-compositor support (Linux)** — works on any Wayland compositor supporting `wlr-layer-shell` (Hyprland, Sway, river, etc.)
+- **Multi-output support** — switch between monitors (Hyprland on Linux; any multi-display setup on macOS)
 - **Interactive** — responds to mouse drag, tap, and scroll input
 - **Motion & expression** — supports idle animations, lip-sync, eye-blink, physics, and expressions
 - **Configurable model directory** — load models from any path via CLI flag or XDG config
@@ -40,9 +40,11 @@ https://github.com/user-attachments/assets/95dfdedc-4957-4bb7-b79f-f3addd97a6db
 
 ## Prerequisites
 
+### Linux
+
 | Dependency | Notes |
 |---|---|
-| **Linux with Wayland compositor** | Must support `wlr-layer-shell-v1` (Hyprland, Sway, river, etc.) |
+| **Linux with Wayland compositor** | Must support `wlr-layer-shell-v1` (Hyprland, Sway, river, etc.). x86_64 is the SDK's stable target; arm64 (Raspberry Pi, ARM servers) uses Live2D's *experimental* Cubism Core build and may be less stable. |
 | **Live2D Cubism SDK for Native** | Download from [live2d.com/sdk](https://www.live2d.com/en/sdk/about/) (proprietary, not bundled) |
 | **C++ compiler** | GCC or Clang with C++14 support |
 | **CMake** | >= 3.16 |
@@ -52,7 +54,21 @@ https://github.com/user-attachments/assets/95dfdedc-4957-4bb7-b79f-f3addd97a6db
 | **wayland-scanner** | Usually part of `wayland-protocols` or `wayland` dev packages |
 | **curl, unzip** | For downloading third-party dependencies (GLEW) |
 
+### macOS
+
+| Dependency | Notes |
+|---|---|
+| **macOS** | Uses native Cocoa/Quartz windowing — no Wayland/EGL/pkg-config needed |
+| **Live2D Cubism SDK for Native** | Download from [live2d.com/sdk](https://www.live2d.com/en/sdk/about/) (proprietary, not bundled) |
+| **Xcode Command Line Tools** | `xcode-select --install` — provides clang++ and the Cocoa/OpenGL frameworks |
+| **CMake** | >= 3.16 |
+| **curl, unzip** | For downloading third-party dependencies (GLEW) |
+
+The macOS SDK ships separate `Core/lib/macos/arm64/` and `Core/lib/macos/x86_64/` static libs (no universal binary); `CMakeLists.txt` picks the right one automatically based on `CMAKE_SYSTEM_PROCESSOR`.
+
 ### Installing system dependencies
+
+If you use [mise](https://mise.jdx.dev/), `mise trust && mise bootstrap --yes` installs the packages below automatically for whichever package manager is on your system (apt, pacman, dnf, or Homebrew on macOS). On macOS you still need to run `xcode-select --install` yourself first — that's not something a package manager can install. Otherwise, install manually:
 
 **Arch Linux:**
 ```bash
@@ -67,6 +83,12 @@ sudo apt install build-essential cmake pkg-config libwayland-dev wayland-protoco
 **Fedora:**
 ```bash
 sudo dnf install gcc-c++ cmake pkgconf-pkg-config wayland-devel wayland-protocols-devel mesa-libEGL-devel mesa-libGL-devel curl unzip
+```
+
+**macOS:**
+```bash
+xcode-select --install
+brew install cmake curl
 ```
 
 ## Installation

@@ -22,11 +22,21 @@ int main(int argc, char* argv[])
     // waifuland toggle
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "toggle") == 0 || strcmp(argv[i], "--toggle") == 0) {
+#ifdef __APPLE__
+            // macOS killall's "-s" means "simulate, don't actually send" (unlike
+            // Linux's psmisc killall, where "-s" picks the signal to send).
+            system("killall -USR1 waifuland");
+#else
             system("killall -s SIGUSR1 waifuland");
+#endif
             return 0;
         }
         if (strcmp(argv[i], "focus") == 0 || strcmp(argv[i], "--focus") == 0) {
+#ifdef __APPLE__
+            system("killall -USR2 waifuland");
+#else
             system("killall -s SIGUSR2 waifuland");
+#endif
             return 0;
         }
     }

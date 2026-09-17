@@ -58,42 +58,56 @@ check_pkg_config() {
     fi
 }
 
+IS_MACOS=false
+if [ "$(uname -s)" = "Darwin" ]; then
+    IS_MACOS=true
+fi
+
 check_command cmake        "cmake"
-check_command make         "make / build-essential"
-check_command g++          "g++ / gcc / build-essential"
-check_command pkg-config   "pkg-config / pkgconf"
+check_command make         "make / Xcode Command Line Tools"
+check_command g++          "g++ / clang++ (Xcode Command Line Tools)"
 check_command curl         "curl"
 check_command unzip        "unzip"
 
-# wayland-scanner
-if command -v wayland-scanner &>/dev/null; then
-    success "wayland-scanner found: $(command -v wayland-scanner)"
-elif pkg-config --exists wayland-scanner 2>/dev/null; then
-    SCANNER=$(pkg-config --variable=wayland_scanner wayland-scanner 2>/dev/null || true)
-    if [ -n "$SCANNER" ] && [ -x "$SCANNER" ]; then
-        success "wayland-scanner found via pkg-config: $SCANNER"
+if [ "$IS_MACOS" = true ]; then
+    success "macOS detected — using native Cocoa/Quartz windowing (no Wayland/EGL/pkg-config needed)"
+else
+    check_command pkg-config   "pkg-config / pkgconf"
+
+    # wayland-scanner
+    if command -v wayland-scanner &>/dev/null; then
+        success "wayland-scanner found: $(command -v wayland-scanner)"
+    elif pkg-config --exists wayland-scanner 2>/dev/null; then
+        SCANNER=$(pkg-config --variable=wayland_scanner wayland-scanner 2>/dev/null || true)
+        if [ -n "$SCANNER" ] && [ -x "$SCANNER" ]; then
+            success "wayland-scanner found via pkg-config: $SCANNER"
+        else
+            error "wayland-scanner not found. Install wayland-devel / wayland"
+            ERRORS=$((ERRORS + 1))
+        fi
     else
         error "wayland-scanner not found. Install wayland-devel / wayland"
         ERRORS=$((ERRORS + 1))
     fi
-else
-    error "wayland-scanner not found. Install wayland-devel / wayland"
-    ERRORS=$((ERRORS + 1))
-fi
 
-# Libraries via pkg-config
-check_pkg_config wayland-client  "libwayland-dev / wayland-devel"
-check_pkg_config wayland-egl     "libwayland-dev / wayland-devel"
-check_pkg_config wayland-cursor  "libwayland-dev / wayland-devel"
-check_pkg_config egl             "libegl-dev / mesa-libEGL-devel"
+    # Libraries via pkg-config
+    check_pkg_config wayland-client  "libwayland-dev / wayland-devel"
+    check_pkg_config wayland-egl     "libwayland-dev / wayland-devel"
+    check_pkg_config wayland-cursor  "libwayland-dev / wayland-devel"
+    check_pkg_config egl             "libegl-dev / mesa-libEGL-devel"
+fi
 
 if [ "$ERRORS" -gt 0 ]; then
     echo ""
     error "$ERRORS missing dependency(ies). Please install them and re-run this script."
     echo ""
-    info  "Arch Linux:       sudo pacman -S --needed base-devel cmake pkgconf wayland wayland-protocols libglvnd egl-wayland curl unzip"
-    info  "Ubuntu / Debian:  sudo apt install build-essential cmake pkg-config libwayland-dev wayland-protocols libegl-dev libgl-dev curl unzip"
-    info  "Fedora:           sudo dnf install gcc-c++ cmake pkgconf-pkg-config wayland-devel wayland-protocols-devel mesa-libEGL-devel mesa-libGL-devel curl unzip"
+    if [ "$IS_MACOS" = true ]; then
+        info  "macOS:            xcode-select --install ; brew install cmake curl"
+    else
+        info  "Arch Linux:       sudo pacman -S --needed base-devel cmake pkgconf wayland wayland-protocols libglvnd egl-wayland curl unzip"
+        info  "Ubuntu / Debian:  sudo apt install build-essential cmake pkg-config libwayland-dev wayland-protocols libegl-dev libgl-dev curl unzip"
+        info  "Fedora:           sudo dnf install gcc-c++ cmake pkgconf-pkg-config wayland-devel wayland-protocols-devel mesa-libEGL-devel mesa-libGL-devel curl unzip"
+    fi
     exit 1
 fi
 

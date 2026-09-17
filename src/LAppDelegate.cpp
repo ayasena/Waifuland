@@ -12,11 +12,19 @@
 #include <sstream>
 #include <unistd.h>
 #include <libgen.h>
+#include <climits>
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
 #include <GL/glew.h>
 
 #include "LAppView.hpp"
 #include "LAppPal.hpp"
+#ifdef __APPLE__
+// LAppMacOS.hpp already pulled in via LAppPlatform.hpp -> LAppDelegate.hpp
+#else
 #include "LAppWaylandRegion.hpp"
+#endif
 #include "LAppDefine.hpp"
 #include "LAppLive2DManager.hpp"
 #include "LAppTextureManager.hpp"
@@ -72,14 +80,20 @@ bool LAppDelegate::Initialize()
     signal(SIGUSR1, HandleToggleSignal);
     signal(SIGUSR2, HandleFocusSignal);
 
-    DetectCompositor();
-
     _windowWidth = RenderTargetWidth;
     _windowHeight = RenderTargetHeight;
+
+#ifdef __APPLE__
+    if (!SetupMacOSContext(&_wlContext, RenderTargetWidth, RenderTargetHeight)) {
+        return false;
+    }
+#else
+    DetectCompositor();
 
     if (!SetupWaylandContext(&_wlContext, RenderTargetWidth, RenderTargetHeight)) {
         return false;
     }
+#endif
 
     glewExperimental = GL_TRUE;
     GLenum err = glewInit();
@@ -118,7 +132,11 @@ void LAppDelegate::Release()
 {
     LAppIPC::ReleaseInstance();
 
+#ifdef __APPLE__
+    CleanMacOSContext(&_wlContext);
+#else
     CleanWaylandContext(&_wlContext);
+#endif
 
     delete _textureManager;
     delete _view;
@@ -128,13 +146,17 @@ void LAppDelegate::Release()
 }
 void LAppDelegate::Run()
 {
-    while (!_isEnd) 
+    while (!_isEnd)
     {
+#ifdef __APPLE__
+        MacOSPumpEvents();
+#else
         if (wl_display_dispatch_pending(_wlContext.display) == -1) {
             break;
         }
         wl_display_flush(_wlContext.display);
-        
+#endif
+
         int width = _wlContext.width;
         int height = _wlContext.height;
 
@@ -157,7 +179,7 @@ void LAppDelegate::Run()
         int hx, hy;
         if (GetGlobalCursorPosition(hx, hy) && !_wlContext.outputs.empty()) {
             int current_idx = _wlContext.current_output_index;
-            WaylandContext::OutputInfo* out = _wlContext.outputs[current_idx];
+            PlatformContext::OutputInfo* out = _wlContext.outputs[current_idx];
             
             int local_x = hx - out->x;
             int local_y = hy - out->y;
@@ -178,9 +200,14 @@ void LAppDelegate::Run()
             _view->Render();
         }
 
+#ifdef __APPLE__
+        UpdateMacOSInputRegion(&_wlContext, hx, hy);
+        MacOSSwapBuffers(&_wlContext);
+#else
         UpdateWaylandInputRegion(&_wlContext);
         eglSwapBuffers(_wlContext.egl_display, _wlContext.egl_surface);
-        
+#endif
+
         if (_isHidden) {
             usleep(33000); // Reduce CPU usage when hidden
         }
@@ -237,7 +264,7 @@ void LAppDelegate::InitializeCubism()
         int hx, hy;
         if (GetGlobalCursorPosition(hx, hy) && !_wlContext.outputs.empty()) {
             int current_idx = _wlContext.current_output_index;
-            WaylandContext::OutputInfo* out = _wlContext.outputs[current_idx];
+            PlatformContext::OutputInfo* out = _wlContext.outputs[current_idx];
             
             int local_x = hx - out->x;
             int local_y = hy - out->y;
@@ -286,13 +313,18 @@ void LAppDelegate::OnMouseCallBack(void* window, int button, int action, int mod
                 
                 if (is_drag && got_cursor && has_outputs) {
                     int old_idx = _wlContext.current_output_index;
+#ifdef __APPLE__
+                    extern void SwitchMacOSOutputToMonitor(int, int);
+                    SwitchMacOSOutputToMonitor(hx, hy);
+#else
                     extern void SwitchWaylandOutputToMonitor(int, int);
                     SwitchWaylandOutputToMonitor(hx, hy);
+#endif
                     int new_idx = _wlContext.current_output_index;
-                    
+
                     if (old_idx != new_idx) {
-                        WaylandContext::OutputInfo* out = _wlContext.outputs[old_idx];
-                        WaylandContext::OutputInfo* new_out = _wlContext.outputs[new_idx];
+                        PlatformContext::OutputInfo* out = _wlContext.outputs[old_idx];
+                        PlatformContext::OutputInfo* new_out = _wlContext.outputs[new_idx];
                         
                         // Keep physical height identical across different resolution monitors
                         _modelScale *= (float)out->height / (float)new_out->height;
@@ -399,11 +431,25 @@ void LAppDelegate::GetClientSize(int& rWidth, int& rHeight)
 void LAppDelegate::SetExecuteAbsolutePath()
 {
     char path[1024];
+#ifdef __APPLE__
+    uint32_t size = sizeof(path);
+    if (_NSGetExecutablePath(path, &size) != 0)
+    {
+        path[0] = '\0';
+    }
+    char resolved[PATH_MAX];
+    if (realpath(path, resolved) != NULL)
+    {
+        strncpy(path, resolved, sizeof(path) - 1);
+        path[sizeof(path) - 1] = '\0';
+    }
+#else
     ssize_t len = readlink("/proc/self/exe", path, 1024 - 1);
     if (len != -1)
     {
         path[len] = '\0';
     }
+#endif
     this->_executeAbsolutePath = dirname(path);
     this->_executeAbsolutePath += "/";
 }
