@@ -4,3 +4,4 @@ models
 thirdParty/glew
 thirdParty/glfw
 CLAUDE.md
+.codegraph/
