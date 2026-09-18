@@ -76,6 +76,7 @@ static void layer_surface_configure(void *data, struct zwlr_layer_surface_v1 *su
     std::cout << "[Wayland] Configured! width: " << wl->width << ", height: " << wl->height << std::endl;
 }
 static void layer_surface_closed(void *data, struct zwlr_layer_surface_v1 *surface) {
+    std::cout << "[Wayland] Layer surface closed by compositor, exiting." << std::endl;
     LAppDelegate::GetInstance()->AppEnd();
 }
 static const struct zwlr_layer_surface_v1_listener layer_surface_listener = {
