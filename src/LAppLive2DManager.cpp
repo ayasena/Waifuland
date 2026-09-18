@@ -432,7 +432,16 @@ int LAppLive2DManager::HitTestCharacter(csmFloat32 x, csmFloat32 y) const
         LAppModel* model = _characters[i].model;
         if (model == NULL) continue;
 
-        if (model->HitTest(HitAreaNameHead, x, y) || model->HitTest(HitAreaNameBody, x, y))
+        // HitTest inverts only _modelMatrix; zoom is applied outside it, in
+        // OnUpdate()'s per-frame projection (see SetCharacterOffset comment).
+        // Undo that scale here so hit-testing matches what's actually drawn
+        // at any zoom level, instead of drifting off the model as it grows.
+        csmFloat32 scale = _characters[i].scale;
+        if (scale <= 0.0f) scale = 1.0f;
+        csmFloat32 sx = x / scale;
+        csmFloat32 sy = y / scale;
+
+        if (model->HitTest(HitAreaNameHead, sx, sy) || model->HitTest(HitAreaNameBody, sx, sy))
         {
             return _characters[i].id;
         }
@@ -494,7 +503,13 @@ void LAppLive2DManager::OnTap(csmFloat32 x, csmFloat32 y)
         LAppModel* model = _characters[i].model;
         if (model == NULL) continue;
 
-        if (model->HitTest(HitAreaNameHead, x, y))
+        // Same zoom compensation as HitTestCharacter() — see comment there.
+        csmFloat32 scale = _characters[i].scale;
+        if (scale <= 0.0f) scale = 1.0f;
+        csmFloat32 sx = x / scale;
+        csmFloat32 sy = y / scale;
+
+        if (model->HitTest(HitAreaNameHead, sx, sy))
         {
             if (DebugLogEnable)
             {
@@ -502,7 +517,7 @@ void LAppLive2DManager::OnTap(csmFloat32 x, csmFloat32 y)
             }
             model->SetRandomExpression();
         }
-        else if (model->HitTest(HitAreaNameBody, x, y))
+        else if (model->HitTest(HitAreaNameBody, sx, sy))
         {
             if (DebugLogEnable)
             {
