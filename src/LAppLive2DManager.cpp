@@ -311,6 +311,8 @@ int LAppLive2DManager::AddCharacter(csmInt32 modelDirIndex, bool hasPosition, cs
     slot.posY = hasPosition ? y : 0.0f;
     slot.scale = scale;
     slot.targetScale = scale;
+    slot.zoomAnchorX = 0.0f;
+    slot.zoomAnchorY = 0.0f;
     slot.autoPositioned = !hasPosition;
     slot.mouthY = 0.0f;
     slot.hasMouth = false;
@@ -442,10 +444,13 @@ void LAppLive2DManager::SetCharacterPosition(int characterId, csmFloat32 x, csmF
     }
 }
 
-void LAppLive2DManager::SetCharacterZoom(int characterId, csmFloat32 scale)
+void LAppLive2DManager::SetCharacterZoom(int characterId, csmFloat32 scale, csmFloat32 anchorX, csmFloat32 anchorY)
 {
     CharacterSlot* slot = FindSlot(characterId);
     if (slot == NULL) return;
+
+    slot->zoomAnchorX = anchorX;
+    slot->zoomAnchorY = anchorY;
 
     // Eased toward each frame in OnUpdate(), same as the old single-character
     // _targetModelScale/_modelScale pair — avoids a "pop" when a trackpad
@@ -644,7 +649,18 @@ void LAppLive2DManager::OnUpdate()
         // it's already baked into the model's own matrix via
         // SetCharacterOffset, which keeps hit-testing (which only inverts
         // through that matrix) in sync with what's drawn.
+        csmFloat32 prevScale = slot.scale;
         slot.scale += (slot.targetScale - slot.scale) * (1.0f - std::exp(-15.0f * deltaTime));
+        if (slot.scale != prevScale && prevScale > 0.0f)
+        {
+            // Zoom about the anchor: drawn = scale * (base + pos), so keeping
+            // anchor fixed means pos += anchor * (1/new - 1/old).
+            csmFloat32 k = 1.0f / slot.scale - 1.0f / prevScale;
+            slot.posX += slot.zoomAnchorX * k;
+            slot.posY += slot.zoomAnchorY * k;
+            slot.autoPositioned = false;
+            model->SetCharacterOffset(slot.posX, slot.posY);
+        }
         projection.ScaleRelative(slot.scale, slot.scale);
 
         if (_viewMatrix != NULL)

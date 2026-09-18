@@ -120,7 +120,8 @@ public:
 
     /// 指定キャラクターの位置を設定する（ドラッグ後は自動配置の対象から外れる）。
     void SetCharacterPosition(int characterId, Csm::csmFloat32 x, Csm::csmFloat32 y);
-    void SetCharacterZoom(int characterId, Csm::csmFloat32 scale);
+    /// anchorX/anchorY: view-space point that stays fixed while zooming (0,0 = screen center).
+    void SetCharacterZoom(int characterId, Csm::csmFloat32 scale, Csm::csmFloat32 anchorX = 0.0f, Csm::csmFloat32 anchorY = 0.0f);
     void SwitchSkin(int characterId);
 
     /// 指定キャラクターの口の開きを設定する（IPCリップシンク用）。
@@ -179,6 +180,8 @@ private:
         Csm::csmFloat32 posY;
         Csm::csmFloat32 scale;       ///< current, eased-toward-targetScale each frame in OnUpdate()
         Csm::csmFloat32 targetScale; ///< set by SetCharacterZoom(); scale eases toward this
+        Csm::csmFloat32 zoomAnchorX; ///< view-space point held fixed while scale eases
+        Csm::csmFloat32 zoomAnchorY;
         bool autoPositioned;
         Csm::csmFloat32 mouthY;      ///< current mouth openness, eased toward 0 when stale
         bool hasMouth;               ///< ever received a mouth sample

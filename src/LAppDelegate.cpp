@@ -473,7 +473,7 @@ void LAppDelegate::OnScrollCallBack(void* window, double xoffset, double yoffset
     float target = mgr->GetCharacterZoom(id) * scale;
     if (target < 0.1f) target = 0.1f;
     if (target > 10.0f) target = 10.0f;
-    mgr->SetCharacterZoom(id, target);
+    mgr->SetCharacterZoom(id, target, sx, sy);
 }
 
 void LAppDelegate::GetClientSize(int& rWidth, int& rHeight)
