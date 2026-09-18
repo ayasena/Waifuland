@@ -36,18 +36,20 @@ using namespace LAppDefine;
 
 namespace {
     LAppDelegate* s_instance = NULL;
+
+    // Signal handlers only raise these flags; the main loop applies them.
+    // (Calling ToggleHidden()/RequestMoveToFocusedMonitor() directly from a
+    // handler would mutate live loop state from async context.)
+    volatile sig_atomic_t s_toggleRequested = 0;
+    volatile sig_atomic_t s_focusRequested = 0;
 }
 
 static void HandleToggleSignal(int) {
-    if (s_instance) {
-        s_instance->ToggleHidden();
-    }
+    s_toggleRequested = 1;
 }
 
 static void HandleFocusSignal(int) {
-    if (s_instance) {
-        s_instance->RequestMoveToFocusedMonitor();
-    }
+    s_focusRequested = 1;
 }
 
 LAppDelegate* LAppDelegate::GetInstance()
@@ -125,7 +127,6 @@ bool LAppDelegate::Initialize()
     LAppLive2DManager::GetInstance();
 
     _view->Initialize(_windowWidth, _windowHeight);
-    _view->InitializeSprite();
 
     // Initialize IPC socket server
     LAppIPC::GetInstance()->Initialize();
@@ -135,6 +136,11 @@ bool LAppDelegate::Initialize()
 void LAppDelegate::Release()
 {
     LAppIPC::ReleaseInstance();
+
+    // Models must die before the texture manager: their destructors return
+    // texture references to it. (Live2DManager::ReleaseInstance below then
+    // finds an empty roster and only tears down shared state.)
+    LAppLive2DManager::GetInstance()->ReleaseAllModel();
 
 #ifdef __APPLE__
     CleanMacOSContext(&_wlContext);
@@ -152,6 +158,16 @@ void LAppDelegate::Run()
 {
     while (!_isEnd)
     {
+        // Apply deferred signal requests (see HandleToggleSignal/).
+        if (s_toggleRequested) {
+            s_toggleRequested = 0;
+            ToggleHidden();
+        }
+        if (s_focusRequested) {
+            s_focusRequested = 0;
+            RequestMoveToFocusedMonitor();
+        }
+
 #ifdef __APPLE__
         MacOSPumpEvents();
 #else
@@ -166,8 +182,6 @@ void LAppDelegate::Run()
 
         if((_windowWidth!=width || _windowHeight!=height) && width>0 && height>0) {
             _view->Initialize(width, height);
-            _view->ResizeSprite();
-            _view->DestroySpriteRenderTarget();
             LAppLive2DManager::GetInstance()->SetRenderTargetSize(width, height);
             _windowWidth = width;
             _windowHeight = height;

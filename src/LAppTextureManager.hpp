@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include <map>
 #include <string>
 #include <GL/glew.h>
 #include <Type/csmVector.hpp>
@@ -35,6 +36,10 @@ public:
     /**
     * @brief 画像読み込み
     *
+    * 同じファイルは2回目以降アップロードせず、参照カウントだけ増やす。
+    * 呼び出し側（LAppModel）は破棄時に ReleaseTexture(fileName) で
+    * 参照を返すこと。カウントが0になったテクスチャだけGLから消える。
+    *
     * @param[in] fileName  読み込む画像ファイルパス名
     * @return 画像情報。読み込み失敗時はNULLを返す
     */
@@ -62,4 +67,15 @@ public:
     * @param[in] fileName  解放する画像ファイルパス名
     **/
     void ReleaseTexture(std::string fileName);
+
+    /**
+     * @brief 現在ロード中のテクスチャ数（参照カウント0のものは含まない）。
+     *        モデル切替でのリーク確認用。
+     */
+    Csm::csmUint32 GetLoadedTextureCount() const { return _texturesInfo.GetSize(); }
+
+private:
+    /// ファイル名→参照カウント。CreateTextureFromPngFile で+1、
+    /// ReleaseTexture(fileName) で-1。0で実解放。
+    std::map<std::string, int> _refCounts;
 };

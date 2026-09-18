@@ -32,9 +32,14 @@
 # Multiple characters can be shown at once (see the "characters" config array
 # in config.json). Every per-model command above accepts an optional
 # --character <id> to target one specific character instead of the default
-# (character 0), e.g.:
+# (the first character currently shown), e.g.:
 #   waifuland-ctl do_motion --character 1 --group "TapBody"
 #   waifuland-ctl set_model_zoom --character 1 --value 1.5
+#
+# Lipsync-rate commands (set_mouth_y, set_mouth_batch) send no reply unless
+# --ack is passed. set_mouth_batch moves several mouths in one call:
+#   waifuland-ctl set_mouth_batch --mouths '{"0":0.8,"1":0.1}'
+# (JSON object values like --mouths are passed through unquoted.)
 #
 # The socket path is $XDG_RUNTIME_DIR/waifuland.sock (fallback: /tmp/waifuland.sock)
 
@@ -56,7 +61,8 @@ if [ $# -lt 1 ]; then
     echo "  set_expression        Set expression (--id)"
     echo "  get_motions           List motions for current model"
     echo "  do_motion             Play motion (--group, --index, --priority)"
-    echo "  set_mouth_y           Set mouth Y for lipsync (--value 0.0-1.0)"
+    echo "  set_mouth_y           Set mouth Y for lipsync (--value 0.0-1.0, --character, --ack)"
+    echo "  set_mouth_batch       Set several mouths at once (--mouths '{\"<id>\":<0..1>,...}')"
     echo "  set_model_zoom        Set zoom level (--value 0.1-10.0)"
     echo "  set_model_position    Set position (--x, --y)"
     echo "  get_model_position    Get current position and zoom"
@@ -68,7 +74,7 @@ if [ $# -lt 1 ]; then
     echo "  remove_character      Remove a character (--character <id>)"
     echo ""
     echo "Most commands accept --character <id> to target one of several"
-    echo "simultaneously-shown characters (default: 0)."
+    echo "simultaneously-shown characters (default: the first one shown)."
     exit 1
 fi
 
@@ -87,8 +93,8 @@ while [ $# -gt 0 ]; do
     key="${1#--}"  # strip leading --
     shift
 
-    if [ "$key" = "reset" ]; then
-        JSON="$JSON,\"reset\":true"
+    if [ "$key" = "reset" ] || [ "$key" = "ack" ]; then
+        JSON="$JSON,\"$key\":true"
         continue
     fi
 
@@ -101,6 +107,9 @@ while [ $# -gt 0 ]; do
 
     # Check if value is numeric
     if [[ "$value" =~ ^-?[0-9]*\.?[0-9]+$ ]]; then
+        JSON="$JSON,\"$key\":$value"
+    elif [[ "$value" == \{* || "$value" == \[* ]]; then
+        # JSON object/array values (e.g. --mouths '{"0":0.8}') pass through raw
         JSON="$JSON,\"$key\":$value"
     else
         JSON="$JSON,\"$key\":\"$value\""

@@ -36,6 +36,7 @@ LAppTextureManager::TextureInfo* LAppTextureManager::CreateTextureFromPngFile(st
     {
         if (_texturesInfo[i]->fileName == fileName)
         {
+            _refCounts[fileName]++;
             return _texturesInfo[i];
         }
     }
@@ -90,6 +91,7 @@ LAppTextureManager::TextureInfo* LAppTextureManager::CreateTextureFromPngFile(st
         textureInfo->id = textureId;
 
         _texturesInfo.PushBack(textureInfo);
+        _refCounts[fileName] = 1;
     }
 
     return textureInfo;
@@ -103,6 +105,7 @@ void LAppTextureManager::ReleaseTextures()
         glDeleteTextures(1, &(_texturesInfo[i]->id));
     }
 
+    _refCounts.clear();
     ReleaseTexturesInfo();
 }
 
@@ -114,15 +117,24 @@ void LAppTextureManager::ReleaseTexture(Csm::csmUint32 textureId)
         {
             continue;
         }
-        glDeleteTextures(1, &(_texturesInfo[i]->id));
-        delete _texturesInfo[i];
-        _texturesInfo.Remove(i);
+        ReleaseTexture(_texturesInfo[i]->fileName);
         break;
     }
 }
 
 void LAppTextureManager::ReleaseTexture(std::string fileName)
 {
+    std::map<std::string, int>::iterator ref = _refCounts.find(fileName);
+    if (ref != _refCounts.end() && ref->second > 1)
+    {
+        // Still referenced by other models — just drop one reference.
+        ref->second--;
+        return;
+    }
+    if (ref != _refCounts.end())
+    {
+        _refCounts.erase(ref);
+    }
     for (Csm::csmUint32 i = 0; i < _texturesInfo.GetSize(); i++)
     {
         if (_texturesInfo[i]->fileName == fileName)

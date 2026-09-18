@@ -4,6 +4,7 @@
 #include "LAppModel.hpp"
 #include "LAppPal.hpp"
 #include "LAppDefine.hpp"
+#include "JsonMini.hpp"
 
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -13,6 +14,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <cstdio>
+#include <map>
 #include <sstream>
 #include <algorithm>
 
@@ -21,12 +23,6 @@ using namespace Csm;
 namespace {
     LAppIPC* s_instance = NULL;
 }
-
-float LAppIPC::_externalMouthY = 0.0f;
-bool LAppIPC::_hasExternalMouthY = false;
-float LAppIPC::_externalLookX = 0.0f;
-float LAppIPC::_externalLookY = 0.0f;
-bool LAppIPC::_hasExternalLook = false;
 
 LAppIPC* LAppIPC::GetInstance()
 {
@@ -194,9 +190,14 @@ void LAppIPC::Poll()
                 if (!line.empty())
                 {
                     std::string response = ProcessCommand(line);
-                    response += "\n";
-                    // Best-effort write
-                    write(fd, response.c_str(), response.size());
+                    if (!response.empty())
+                    {
+                        // Empty means "no reply" (lipsync-rate commands
+                        // without "ack":true) — don't waste a write.
+                        response += "\n";
+                        // Best-effort write
+                        write(fd, response.c_str(), response.size());
+                    }
                 }
             }
         }
@@ -215,8 +216,9 @@ void LAppIPC::Poll()
     }
 }
 
-// ─── Minimal JSON helpers (no external dependency) ───────────────────────────
-// We only need to produce JSON output and parse simple {"command":"...", ...} input.
+// ─── Minimal JSON output helper ─────────────────────────────────────────────
+// Input parsing lives in JsonMini.hpp (shared with LAppConfig). Only output
+// escaping stays here.
 
 static std::string JsonEscape(const std::string& s)
 {
@@ -238,70 +240,30 @@ static std::string JsonEscape(const std::string& s)
     return out;
 }
 
-// Very simple key extraction from a flat JSON object. Returns empty string if not found.
-static std::string JsonGetString(const std::string& json, const std::string& key)
+// Resolve which character a per-character command targets. An explicit
+// "character" field wins; omitting it follows the first roster entry (NOT
+// literal id 0 — ids are never reused, so 0 goes stale after the first
+// removal). Returns -1 when the roster is empty.
+static int ResolveCharacter(const JsonMini& req, LAppLive2DManager* mgr)
 {
-    std::string needle = "\"" + key + "\"";
-    size_t pos = json.find(needle);
-    if (pos == std::string::npos) return "";
-
-    pos = json.find(':', pos + needle.size());
-    if (pos == std::string::npos) return "";
-
-    // Skip whitespace
-    pos++;
-    while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t')) pos++;
-
-    if (pos >= json.size()) return "";
-
-    if (json[pos] == '"')
+    if (req.Has("character"))
     {
-        // String value
-        pos++;
-        std::string val;
-        while (pos < json.size() && json[pos] != '"')
-        {
-            if (json[pos] == '\\' && pos + 1 < json.size())
-            {
-                pos++;
-            }
-            val += json[pos];
-            pos++;
-        }
-        return val;
+        return req.GetInt("character", -1);
     }
-    else
-    {
-        // Number or other literal
-        std::string val;
-        while (pos < json.size() && json[pos] != ',' && json[pos] != '}' && json[pos] != ' ')
-        {
-            val += json[pos];
-            pos++;
-        }
-        return val;
-    }
-}
-
-static float JsonGetFloat(const std::string& json, const std::string& key, float defaultVal)
-{
-    std::string val = JsonGetString(json, key);
-    if (val.empty()) return defaultVal;
-    return (float)atof(val.c_str());
-}
-
-static int JsonGetInt(const std::string& json, const std::string& key, int defaultVal)
-{
-    std::string val = JsonGetString(json, key);
-    if (val.empty()) return defaultVal;
-    return atoi(val.c_str());
+    return mgr->GetCharacterIdAt(0);
 }
 
 // ─── Command handlers ─────────────────────────────────────────────────────────
 
 std::string LAppIPC::ProcessCommand(const std::string& json)
 {
-    std::string command = JsonGetString(json, "command");
+    JsonMini req;
+    if (!req.Parse(json))
+    {
+        return "{\"ok\":false,\"error\":\"invalid JSON\"}";
+    }
+
+    std::string command = req.GetString("command");
 
     if (command.empty())
     {
@@ -314,7 +276,7 @@ std::string LAppIPC::ProcessCommand(const std::string& json)
     // ── get_available_models ──
     if (command == "get_available_models")
     {
-        csmVector<csmString> dirs = mgr->GetModelDir();
+        const csmVector<csmString>& dirs = mgr->GetModelDir();
         std::ostringstream oss;
         oss << "{\"ok\":true,\"models\":[";
         for (csmInt32 i = 0; i < (csmInt32)dirs.GetSize(); i++)
@@ -327,20 +289,21 @@ std::string LAppIPC::ProcessCommand(const std::string& json)
     }
 
     // Every per-character command below takes an optional "character": <id>
-    // field; omitting it defaults to character 0, so scripts written against
-    // the old single-character API keep working unchanged.
+    // field; omitting it follows the first roster entry (see
+    // ResolveCharacter), so scripts written against the old
+    // single-character API keep working unchanged.
 
     // ── get_current_model ──
     if (command == "get_current_model")
     {
-        int charId = JsonGetInt(json, "character", 0);
+        int charId = ResolveCharacter(req, mgr);
         csmInt32 idx = mgr->GetCharacterModelDirIndex(charId);
         if (idx < 0)
         {
             return "{\"ok\":false,\"error\":\"no such character\"}";
         }
 
-        csmVector<csmString> dirs = mgr->GetModelDir();
+        const csmVector<csmString>& dirs = mgr->GetModelDir();
         std::string name = (idx < (csmInt32)dirs.GetSize()) ? dirs[idx].GetRawString() : "";
 
         std::ostringstream oss;
@@ -352,21 +315,13 @@ std::string LAppIPC::ProcessCommand(const std::string& json)
     // ── set_model ──
     if (command == "set_model")
     {
-        int charId = JsonGetInt(json, "character", 0);
-        std::string name = JsonGetString(json, "name");
-        int index = JsonGetInt(json, "index", -1);
+        int charId = ResolveCharacter(req, mgr);
+        std::string name = req.GetString("name");
+        int index = req.GetInt("index", -1);
 
         if (!name.empty())
         {
-            csmVector<csmString> dirs = mgr->GetModelDir();
-            for (csmInt32 i = 0; i < (csmInt32)dirs.GetSize(); i++)
-            {
-                if (strcmp(dirs[i].GetRawString(), name.c_str()) == 0)
-                {
-                    index = i;
-                    break;
-                }
-            }
+            index = mgr->FindModelIndex(name.c_str());
             if (index < 0)
             {
                 return "{\"ok\":false,\"error\":\"model not found\"}";
@@ -390,7 +345,7 @@ std::string LAppIPC::ProcessCommand(const std::string& json)
     // ── get_expressions ──
     if (command == "get_expressions")
     {
-        int charId = JsonGetInt(json, "character", 0);
+        int charId = ResolveCharacter(req, mgr);
         LAppModel* model = mgr->GetCharacterModel(charId);
         if (!model)
         {
@@ -412,14 +367,14 @@ std::string LAppIPC::ProcessCommand(const std::string& json)
     // ── set_expression ──
     if (command == "set_expression")
     {
-        int charId = JsonGetInt(json, "character", 0);
+        int charId = ResolveCharacter(req, mgr);
         LAppModel* model = mgr->GetCharacterModel(charId);
         if (!model)
         {
             return "{\"ok\":false,\"error\":\"no such character\"}";
         }
 
-        std::string id = JsonGetString(json, "id");
+        std::string id = req.GetString("id");
         if (id.empty())
         {
             return "{\"ok\":false,\"error\":\"missing 'id'\"}";
@@ -432,7 +387,7 @@ std::string LAppIPC::ProcessCommand(const std::string& json)
     // ── get_motions ──
     if (command == "get_motions")
     {
-        int charId = JsonGetInt(json, "character", 0);
+        int charId = ResolveCharacter(req, mgr);
         LAppModel* model = mgr->GetCharacterModel(charId);
         if (!model)
         {
@@ -456,16 +411,16 @@ std::string LAppIPC::ProcessCommand(const std::string& json)
     // ── do_motion ──
     if (command == "do_motion")
     {
-        int charId = JsonGetInt(json, "character", 0);
+        int charId = ResolveCharacter(req, mgr);
         LAppModel* model = mgr->GetCharacterModel(charId);
         if (!model)
         {
             return "{\"ok\":false,\"error\":\"no such character\"}";
         }
 
-        std::string group = JsonGetString(json, "group");
-        int index = JsonGetInt(json, "index", 0);
-        int priority = JsonGetInt(json, "priority", LAppDefine::PriorityNormal);
+        std::string group = req.GetString("group");
+        int index = req.GetInt("index", 0);
+        int priority = req.GetInt("priority", LAppDefine::PriorityNormal);
 
         if (group.empty())
         {
@@ -479,26 +434,61 @@ std::string LAppIPC::ProcessCommand(const std::string& json)
     }
 
     // ── set_mouth_y ──
+    // Per-character lipsync. No reply unless "ack":true — at lipsync rate
+    // the reply would be pure waste (the sender never reads it).
     if (command == "set_mouth_y")
     {
-        float value = JsonGetFloat(json, "value", 0.0f);
-        if (value < 0.0f) value = 0.0f;
-        if (value > 1.0f) value = 1.0f;
-        _externalMouthY = value;
-        _hasExternalMouthY = true;
-        return "{\"ok\":true}";
-    }
-
-    // ── set_model_zoom ──
-    if (command == "set_model_zoom")
-    {
-        int charId = JsonGetInt(json, "character", 0);
+        int charId = ResolveCharacter(req, mgr);
         if (mgr->GetCharacterModel(charId) == NULL)
         {
             return "{\"ok\":false,\"error\":\"no such character\"}";
         }
 
-        float zoom = JsonGetFloat(json, "value", -1.0f);
+        float value = req.GetFloat("value", 0.0f);
+        mgr->SetCharacterMouth(charId, value);
+        if (req.GetBool("ack", false)) return "{\"ok\":true}";
+        return "";
+    }
+
+    // ── set_mouth_batch ──
+    // One syscall per audio chunk instead of one per character:
+    // {"command":"set_mouth_batch","mouths":{"<id>":<0..1>, ...}}.
+    // Unknown ids are skipped; like set_mouth_y, silent without "ack".
+    if (command == "set_mouth_batch")
+    {
+        if (req.Has("mouths") && !req.WasString("mouths"))
+        {
+            JsonMini mouths;
+            if (mouths.Parse(req.GetString("mouths")))
+            {
+                for (std::map<std::string, std::string>::const_iterator it = mouths.values.begin();
+                     it != mouths.values.end(); ++it)
+                {
+                    char* end = NULL;
+                    long id = strtol(it->first.c_str(), &end, 10);
+                    if (end == it->first.c_str() || *end != '\0') continue;
+                    if (mgr->GetCharacterModel((int)id) == NULL) continue;
+                    char* vend = NULL;
+                    float v = strtof(it->second.c_str(), &vend);
+                    if (vend == it->second.c_str()) continue;
+                    mgr->SetCharacterMouth((int)id, v);
+                }
+            }
+        }
+        if (req.GetBool("ack", false)) return "{\"ok\":true}";
+        return "";
+    }
+
+    // ── set_model_zoom ──
+    if (command == "set_model_zoom")
+    {
+        int charId = ResolveCharacter(req, mgr);
+        if (mgr->GetCharacterModel(charId) == NULL)
+        {
+            return "{\"ok\":false,\"error\":\"no such character\"}";
+        }
+
+        float zoom = req.GetFloat("value", -1.0f);
         if (zoom < 0.1f || zoom > 10.0f)
         {
             return "{\"ok\":false,\"error\":\"value must be 0.1..10.0\"}";
@@ -510,14 +500,14 @@ std::string LAppIPC::ProcessCommand(const std::string& json)
     // ── set_model_position ──
     if (command == "set_model_position")
     {
-        int charId = JsonGetInt(json, "character", 0);
+        int charId = ResolveCharacter(req, mgr);
         if (mgr->GetCharacterModel(charId) == NULL)
         {
             return "{\"ok\":false,\"error\":\"no such character\"}";
         }
 
-        float x = JsonGetFloat(json, "x", mgr->GetCharacterX(charId));
-        float y = JsonGetFloat(json, "y", mgr->GetCharacterY(charId));
+        float x = req.GetFloat("x", mgr->GetCharacterX(charId));
+        float y = req.GetFloat("y", mgr->GetCharacterY(charId));
         mgr->SetCharacterPosition(charId, x, y);
         return "{\"ok\":true}";
     }
@@ -525,7 +515,7 @@ std::string LAppIPC::ProcessCommand(const std::string& json)
     // ── get_model_position ──
     if (command == "get_model_position")
     {
-        int charId = JsonGetInt(json, "character", 0);
+        int charId = ResolveCharacter(req, mgr);
         if (mgr->GetCharacterModel(charId) == NULL)
         {
             return "{\"ok\":false,\"error\":\"no such character\"}";
@@ -541,7 +531,7 @@ std::string LAppIPC::ProcessCommand(const std::string& json)
     // ── list_characters ──
     if (command == "list_characters")
     {
-        csmVector<csmString> dirs = mgr->GetModelDir();
+        const csmVector<csmString>& dirs = mgr->GetModelDir();
         std::ostringstream oss;
         oss << "{\"ok\":true,\"characters\":[";
         csmInt32 count = mgr->GetCharacterCount();
@@ -566,20 +556,12 @@ std::string LAppIPC::ProcessCommand(const std::string& json)
     // ── add_character ──
     if (command == "add_character")
     {
-        std::string name = JsonGetString(json, "name");
-        int index = JsonGetInt(json, "index", -1);
+        std::string name = req.GetString("name");
+        int index = req.GetInt("index", -1);
 
         if (!name.empty())
         {
-            csmVector<csmString> dirs = mgr->GetModelDir();
-            for (csmInt32 i = 0; i < (csmInt32)dirs.GetSize(); i++)
-            {
-                if (strcmp(dirs[i].GetRawString(), name.c_str()) == 0)
-                {
-                    index = i;
-                    break;
-                }
-            }
+            index = mgr->FindModelIndex(name.c_str());
         }
 
         if (index < 0 || index >= mgr->GetModelDirSize())
@@ -587,10 +569,12 @@ std::string LAppIPC::ProcessCommand(const std::string& json)
             return "{\"ok\":false,\"error\":\"model not found\"}";
         }
 
-        bool hasPosition = json.find("\"x\"") != std::string::npos || json.find("\"y\"") != std::string::npos;
-        float x = JsonGetFloat(json, "x", 0.0f);
-        float y = JsonGetFloat(json, "y", 0.0f);
-        float scale = JsonGetFloat(json, "scale", 1.0f);
+        // Positioned when an explicit x or y was supplied; a single
+        // supplied axis pins the other to 0 (same rule as config parsing).
+        bool hasPosition = req.Has("x") || req.Has("y");
+        float x = req.GetFloat("x", 0.0f);
+        float y = req.GetFloat("y", 0.0f);
+        float scale = req.GetFloat("scale", 1.0f);
 
         int id = mgr->AddCharacter(index, hasPosition, x, y, scale);
         if (id < 0)
@@ -606,7 +590,7 @@ std::string LAppIPC::ProcessCommand(const std::string& json)
     // ── remove_character ──
     if (command == "remove_character")
     {
-        int charId = JsonGetInt(json, "character", -1);
+        int charId = req.GetInt("character", -1);
         if (!mgr->RemoveCharacter(charId))
         {
             return "{\"ok\":false,\"error\":\"no such character\"}";
@@ -624,30 +608,36 @@ std::string LAppIPC::ProcessCommand(const std::string& json)
     }
 
     // ── set_look ──
+    // Per-character look override. A reset clears only the targeted
+    // character (default: first roster entry), not every head on screen.
     if (command == "set_look")
     {
-        std::string reset = JsonGetString(json, "reset");
-        if (reset == "true" || reset == "1")
+        int charId = ResolveCharacter(req, mgr);
+        if (mgr->GetCharacterModel(charId) == NULL)
         {
-            _hasExternalLook = false;
+            return "{\"ok\":false,\"error\":\"no such character\"}";
+        }
+
+        if (req.GetBool("reset", false))
+        {
+            mgr->ClearCharacterLook(charId);
             return "{\"ok\":true}";
         }
-        float x = JsonGetFloat(json, "x", 0.0f);
-        float y = JsonGetFloat(json, "y", 0.0f);
-        _externalLookX = x;
-        _externalLookY = y;
-        _hasExternalLook = true;
+        float x = req.GetFloat("x", 0.0f);
+        float y = req.GetFloat("y", 0.0f);
+        mgr->SetCharacterLook(charId, x, y);
         return "{\"ok\":true}";
     }
 
     // ── get_status ──
     if (command == "get_status")
     {
-        csmVector<csmString> dirs = mgr->GetModelDir();
+        const csmVector<csmString>& dirs = mgr->GetModelDir();
 
-        // Top-level model/model_index/zoom/x/y mirror character 0, for
-        // scripts written against the old single-character API.
-        csmInt32 idx = mgr->GetCharacterModelDirIndex(0);
+        // Top-level model/model_index/zoom/x/y mirror the first roster
+        // entry, for scripts written against the old single-character API.
+        int firstId = mgr->GetCharacterIdAt(0);
+        csmInt32 idx = mgr->GetCharacterModelDirIndex(firstId);
         std::string modelName = (idx >= 0 && idx < (csmInt32)dirs.GetSize()) ? dirs[idx].GetRawString() : "";
 
         std::ostringstream oss;
@@ -656,9 +646,9 @@ std::string LAppIPC::ProcessCommand(const std::string& json)
             << ",\"model_index\":" << idx
             << ",\"model_count\":" << mgr->GetModelDirSize()
             << ",\"hidden\":" << (app->_isHidden ? "true" : "false")
-            << ",\"zoom\":" << mgr->GetCharacterZoom(0)
-            << ",\"x\":" << mgr->GetCharacterX(0)
-            << ",\"y\":" << mgr->GetCharacterY(0)
+            << ",\"zoom\":" << mgr->GetCharacterZoom(firstId)
+            << ",\"x\":" << mgr->GetCharacterX(firstId)
+            << ",\"y\":" << mgr->GetCharacterY(firstId)
             << ",\"character_count\":" << mgr->GetCharacterCount()
             << "}";
         return oss.str();
@@ -667,7 +657,7 @@ std::string LAppIPC::ProcessCommand(const std::string& json)
     // ── next_model ──
     if (command == "next_model")
     {
-        int charId = JsonGetInt(json, "character", 0);
+        int charId = ResolveCharacter(req, mgr);
         mgr->NextCharacterModel(charId);
         return "{\"ok\":true}";
     }
@@ -675,7 +665,7 @@ std::string LAppIPC::ProcessCommand(const std::string& json)
     // ── prev_model ──
     if (command == "prev_model")
     {
-        int charId = JsonGetInt(json, "character", 0);
+        int charId = ResolveCharacter(req, mgr);
         mgr->PrevCharacterModel(charId);
         return "{\"ok\":true}";
     }
@@ -683,7 +673,7 @@ std::string LAppIPC::ProcessCommand(const std::string& json)
     // ── switch_skin ──
     if (command == "switch_skin")
     {
-        int charId = JsonGetInt(json, "character", 0);
+        int charId = ResolveCharacter(req, mgr);
         mgr->SwitchSkin(charId);
         return "{\"ok\":true}";
     }

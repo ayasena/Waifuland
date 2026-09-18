@@ -22,7 +22,6 @@
 #include "LAppDefine.hpp"
 #include "LAppConfig.hpp"
 #include "LAppPal.hpp"
-#include "LAppIPC.hpp"
 #include "LAppTextureManager.hpp"
 #include "LAppDelegate.hpp"
 #include <Motion/CubismMotionJson.hpp>
@@ -68,8 +67,7 @@ LAppModel::LAppModel()
 
 LAppModel::~LAppModel()
 {
-    _renderBuffer.DestroyRenderTarget();
-
+    ReleaseBoundTextures();
     ReleaseMotions();
     ReleaseExpressions();
 
@@ -534,7 +532,7 @@ void LAppModel::ReleaseExpressions()
     _expressions.Clear();
 }
 
-void LAppModel::Update()
+void LAppModel::Update(const VoiceSample& voice)
 {
     const csmFloat32 deltaTimeSeconds = LAppPal::GetDeltaTime();
     _userTimeSeconds += deltaTimeSeconds;
@@ -562,20 +560,20 @@ void LAppModel::Update()
 
     _updateScheduler.OnLateUpdate(_model, deltaTimeSeconds);
 
-    // External mouth Y override (IPC lipsync)
-    if (LAppIPC::HasExternalMouthY())
+    // Per-character mouth override (IPC lipsync, routed by the manager).
+    // Only this character's sample is applied — never a global.
+    if (voice.hasMouth)
     {
-        csmFloat32 mouthValue = LAppIPC::GetExternalMouthY();
         for (csmUint32 i = 0; i < _lipSyncIds.GetSize(); ++i)
         {
-            _model->SetParameterValue(_lipSyncIds[i], mouthValue);
+            _model->SetParameterValue(_lipSyncIds[i], voice.mouthY);
         }
     }
 
-    // External look-at override (IPC head tracking)
-    if (LAppIPC::HasExternalLook())
+    // Per-character look-at override (IPC head tracking, routed by manager).
+    if (voice.hasLook)
     {
-        _dragManager->Set(LAppIPC::GetExternalLookX(), LAppIPC::GetExternalLookY());
+        _dragManager->Set(voice.lookX, voice.lookY);
     }
 
     // Expression timeout: revert to default after emotion_timeout seconds
@@ -703,8 +701,9 @@ void LAppModel::Draw(CubismMatrix44& matrix)
 
 csmBool LAppModel::HitTest(const csmChar* hitAreaName, csmFloat32 x, csmFloat32 y)
 {
-    // 透明時は当たり判定なし。
-    if (_opacity < 1)
+    // 透明時は当たり判定なし。フェード途中のわずかな透明化で掴めなく
+    // ならないよう、 fully-transparent 近傍でのみ除外する。
+    if (_opacity < 0.05f)
     {
         return false;
     }
@@ -717,18 +716,99 @@ csmBool LAppModel::HitTest(const csmChar* hitAreaName, csmFloat32 x, csmFloat32 
             return IsHit(drawID, x, y);
         }
     }
-    
+
     if (count == 0) {
-        // Fallback for models without configured HitAreas (like 薇薇安)
-        // Check generic top/bottom zones
+        // Fallback for models without configured HitAreas.
+        // Compare in model space (same inverse transform IsHit uses) so
+        // the Head/Body split follows an offset character instead of
+        // staying glued to screen center.
+        const csmFloat32 ty = _modelMatrix->InvertTransformY(y);
         if (strcmp(hitAreaName, HitAreaNameHead) == 0) {
-            return y > 0.0f; // upper half of logical space
+            return ty > 0.0f; // upper half of the model
         } else if (strcmp(hitAreaName, HitAreaNameBody) == 0) {
-            return y <= 0.0f; // lower half
+            return ty <= 0.0f; // lower half of the model
         }
     }
     
     return false; // 存在しない場合はfalse
+}
+
+csmBool LAppModel::HitTestAnywhere(csmFloat32 x, csmFloat32 y) const
+{
+    if (_opacity < 0.05f) return false;
+    if (_model == NULL || _modelMatrix == NULL) return false;
+
+    // Same inverse transform IsHit uses, evaluated once for all parts.
+    const csmFloat32 tx = _modelMatrix->InvertTransformX(x);
+    const csmFloat32 ty = _modelMatrix->InvertTransformY(y);
+
+    const csmInt32 drawableCount = _model->GetDrawableCount();
+    for (csmInt32 d = 0; d < drawableCount; d++)
+    {
+        // Skip invisible parts so faded-out drawables never grab.
+        if (_model->GetDrawableOpacity(d) < 0.02f) continue;
+
+        const csmInt32 vertexCount = _model->GetDrawableVertexCount(d);
+        if (vertexCount <= 0) continue;
+        const csmFloat32* vertices = _model->GetDrawableVertices(d);
+        if (vertices == NULL) continue;
+
+        csmFloat32 left = vertices[0];
+        csmFloat32 right = vertices[0];
+        csmFloat32 top = vertices[1];
+        csmFloat32 bottom = vertices[1];
+        for (csmInt32 j = 1; j < vertexCount; ++j)
+        {
+            const csmFloat32 vx = vertices[j * 2];
+            const csmFloat32 vy = vertices[j * 2 + 1];
+            if (vx < left) left = vx;
+            if (vx > right) right = vx;
+            if (vy < top) top = vy;
+            if (vy > bottom) bottom = vy;
+        }
+
+        if ((left <= tx) && (tx <= right) && (top <= ty) && (ty <= bottom))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool LAppModel::GetModelSpaceBounds(csmFloat32& left, csmFloat32& top,
+                                    csmFloat32& right, csmFloat32& bottom) const
+{
+    if (_model == NULL) return false;
+
+    bool found = false;
+    const csmInt32 drawableCount = _model->GetDrawableCount();
+    for (csmInt32 d = 0; d < drawableCount; d++)
+    {
+        const csmInt32 vertexCount = _model->GetDrawableVertexCount(d);
+        if (vertexCount <= 0) continue;
+        const csmFloat32* vertices = _model->GetDrawableVertices(d);
+        if (vertices == NULL) continue;
+
+        for (csmInt32 j = 0; j < vertexCount; j++)
+        {
+            const csmFloat32 vx = vertices[j * 2];
+            const csmFloat32 vy = vertices[j * 2 + 1];
+            if (!found)
+            {
+                left = right = vx;
+                top = bottom = vy;
+                found = true;
+            }
+            else
+            {
+                if (vx < left) left = vx;
+                if (vx > right) right = vx;
+                if (vy < top) top = vy;
+                if (vy > bottom) bottom = vy;
+            }
+        }
+    }
+    return found;
 }
 
 void LAppModel::SetExpression(const csmChar* expressionID)
@@ -810,6 +890,10 @@ void LAppModel::SwitchSkin()
 
 void LAppModel::SetupTextures()
 {
+    // Idempotent: drop our references first so a re-setup (ReloadRenderer)
+    // re-acquires instead of stacking extra references.
+    ReleaseBoundTextures();
+
     for (csmInt32 modelTextureNumber = 0; modelTextureNumber < _modelSetting->GetTextureCount(); modelTextureNumber++)
     {
         if (strcmp(_modelSetting->GetTextureFileName(modelTextureNumber), "") == 0) continue;
@@ -818,6 +902,8 @@ void LAppModel::SetupTextures()
         texturePath = _modelHomeDir + texturePath;
 
         LAppTextureManager::TextureInfo* texture = LAppDelegate::GetInstance()->GetTextureManager()->CreateTextureFromPngFile(texturePath.GetRawString());
+        if (texture == NULL) continue;
+        _boundTextureFiles.push_back(texturePath.GetRawString());
         const csmInt32 glTextueNumber = texture->id;
 
         GetRenderer<Rendering::CubismRenderer_OpenGLES2>()->BindTexture(modelTextureNumber, glTextueNumber);
@@ -826,14 +912,24 @@ void LAppModel::SetupTextures()
     GetRenderer<Rendering::CubismRenderer_OpenGLES2>()->IsPremultipliedAlpha(false);
 }
 
+void LAppModel::ReleaseBoundTextures()
+{
+    if (_boundTextureFiles.empty()) return;
+
+    LAppTextureManager* manager = LAppDelegate::GetInstance()->GetTextureManager();
+    if (manager != NULL)
+    {
+        for (size_t i = 0; i < _boundTextureFiles.size(); i++)
+        {
+            manager->ReleaseTexture(_boundTextureFiles[i]);
+        }
+    }
+    _boundTextureFiles.clear();
+}
+
 void LAppModel::MotionEventFired(const csmString& eventValue)
 {
     CubismLogInfo("%s is fired on LAppModel!!", eventValue.GetRawString());
-}
-
-Csm::Rendering::CubismRenderTarget_OpenGLES2& LAppModel::GetRenderBuffer()
-{
-    return _renderBuffer;
 }
 
 std::vector<std::string> LAppModel::GetExpressionIds() const

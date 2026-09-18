@@ -12,10 +12,25 @@
 #include <CubismFramework.hpp>
 #include <ICubismModelSetting.hpp>
 #include <Type/csmRectF.hpp>
-#include <Rendering/OpenGL/CubismRenderTarget_OpenGLES2.hpp>
 
 #include "LAppWavFileHandler_Common.hpp"
 #include "LAppModel_Common.hpp"
+
+/**
+ * @brief Per-frame voice input for one character.
+ *
+ * Produced by LAppLive2DManager (the only owner of per-character voice
+ * state) and consumed by LAppModel::Update. Passing it by value keeps the
+ * model free of IPC singletons: the model renders what it is given.
+ */
+struct VoiceSample
+{
+    bool hasMouth;
+    Csm::csmFloat32 mouthY; ///< 0.0 (closed) .. 1.0 (fully open)
+    bool hasLook;
+    Csm::csmFloat32 lookX;
+    Csm::csmFloat32 lookY;
+};
 
 /**
  * @brief ユーザーが実際に使用するモデルの実装クラス<br>
@@ -56,8 +71,10 @@ public:
     /**
      * @brief   モデルの更新処理。モデルのパラメータから描画状態を決定する。
      *
+     * @param[in]   voice   このキャラクター向けの声サンプル（口・視線）。
+     *                      hasMouth/hasLook が false の項目は触らない。
      */
-    void Update();
+    void Update(const VoiceSample& voice);
 
     /**
      * @brief   モデルを描画する処理。モデルを描画する空間のView-Projection行列を渡す。
@@ -119,9 +136,16 @@ public:
     virtual Csm::csmBool HitTest(const Csm::csmChar* hitAreaName, Csm::csmFloat32 x, Csm::csmFloat32 y);
 
     /**
-     * @brief   別ターゲットに描画する際に使用するバッファの取得
+     * @brief    キャラクター全体の当たり判定。<br>
+     *           Head/Body の指定ヒットエリアではなく、全ドローアブルの
+     *           シルエットで判定する。ドラッグやズームの掴み判定用
+     *           （HitTestCharacter）。タップの表情/モーション振り分けは
+     *           HitTest のまま（作者の意図した部位意味を保つ）。
+     *
+     * @param[in]   x               判定を行うX座標
+     * @param[in]   y               判定を行うY座標
      */
-    Csm::Rendering::CubismRenderTarget_OpenGLES2& GetRenderBuffer();
+    Csm::csmBool HitTestAnywhere(Csm::csmFloat32 x, Csm::csmFloat32 y) const;
 
     /**
      * @brief   Get all expression IDs for IPC queries.
@@ -146,6 +170,15 @@ public:
      * @brief   Get the model setting (for IPC to query model capabilities).
      */
     Csm::ICubismModelSetting* GetModelSetting() const { return _modelSetting; }
+
+    /**
+     * @brief   全ドローアブルの頂点範囲の和をモデル空間で返す。
+     *          入力リージョン（LAppLive2DManager::GetCharacterPixelRects）と
+     *          当たり判定が同じ _modelMatrix 状態を参照するためのもの。
+     * @return  ジオメトリがなければfalse。
+     */
+    bool GetModelSpaceBounds(Csm::csmFloat32& left, Csm::csmFloat32& top,
+                             Csm::csmFloat32& right, Csm::csmFloat32& bottom) const;
 
     /**
      * @brief   Apply a per-character position offset on top of this model's own
@@ -247,6 +280,13 @@ private:
     Csm::csmFloat32 _baseTranslateX;
     Csm::csmFloat32 _baseTranslateY;
 
+    /// Texture files this model holds references to (via
+    /// LAppTextureManager::CreateTextureFromPngFile). Released in the
+    /// destructor and before every re-setup, so model switches never leak
+    /// GL textures.
+    std::vector<std::string> _boundTextureFiles;
+    void ReleaseBoundTextures();
+
     /// All parameter IDs found across skin motion groups, used to reset before switching
     Csm::csmVector<const Csm::CubismId*> _allSkinParamIds;
     /// Default values for each skin parameter (from model defaults)
@@ -254,6 +294,4 @@ private:
     void CollectSkinParams(); ///< Scan motion group JSONs to collect skin parameter IDs
 
     LAppWavFileHandler_Common _wavFileHandler; ///< wavファイルハンドラ
-
-    Csm::Rendering::CubismRenderTarget_OpenGLES2 _renderBuffer;   ///< フレームバッファ以外の描画先
 };

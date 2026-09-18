@@ -6,6 +6,8 @@
  */
 #pragma once
 
+#include <map>
+#include <string>
 #include <CubismFramework.hpp>
 #include <Math/CubismMatrix44.hpp>
 #include <Type/csmVector.hpp>
@@ -33,8 +35,16 @@ public:
     /**
     * @brief   Resources フォルダにあるモデルフォルダ名を取得する（モデルカタログ、全キャラクター共通）
     *
+    * 生の参照を返す。呼び出し側でコピーしないこと（IPC応答の組み立てには
+    * 参照束縛で十分）。
     */
-    Csm::csmVector<Csm::csmString> GetModelDir() const;
+    const Csm::csmVector<Csm::csmString>& GetModelDir() const;
+
+    /**
+    * @brief   モデル名から GetModelDir() のインデックスを引く。
+    * @return  見つからなければ-1。
+    */
+    Csm::csmInt32 FindModelIndex(const char* name) const;
 
     /**
     * @brief   Resources フォルダにあるモデルフォルダのサイズを取得する
@@ -113,6 +123,13 @@ public:
     void SetCharacterZoom(int characterId, Csm::csmFloat32 scale);
     void SwitchSkin(int characterId);
 
+    /// 指定キャラクターの口の開きを設定する（IPCリップシンク用）。
+    /// freshness 期限切れ後は OnUpdate() が自動で閉じる方向へ減衰させる。
+    void SetCharacterMouth(int characterId, Csm::csmFloat32 value);
+    /// 指定キャラクターの視線オーバーライドを設定/解除する。
+    void SetCharacterLook(int characterId, Csm::csmFloat32 x, Csm::csmFloat32 y);
+    void ClearCharacterLook(int characterId);
+
     /**
      * @brief   指定した画面座標にある（Head/Bodyの当たり判定にヒットする）キャラクターを探す。
      * @return  見つかったキャラクターのID、なければ-1。
@@ -122,6 +139,24 @@ public:
     // ロスター内の位置でアクセスするレガシーAPI（LAppView.cppのUSE_RENDER_TARGETサンプルパス用）。
     LAppModel* GetModel(Csm::csmUint32 no) const;
     Csm::csmUint32 GetModelNum() const;
+
+    /// 画面ピクセル空間の矩形（左上原点、Waylandサーフェス座標系）。
+    struct ScreenRect
+    {
+        int left;
+        int top;
+        int width;
+        int height;
+    };
+
+    /**
+     * @brief   各キャラクターの当たり判定と同じ _modelMatrix 状態から
+     *          導いた画面矩形を列挙する（入力リージョン用、§2.6）。
+     * @param[in]   windowWidth, windowHeight  現在のウィンドウサイズ
+     * @param[out]  out  空にしてから詰め直す
+     */
+    void GetCharacterPixelRects(int windowWidth, int windowHeight,
+                                Csm::csmVector<ScreenRect>& out) const;
 
 private:
     LAppLive2DManager();
@@ -145,6 +180,12 @@ private:
         Csm::csmFloat32 scale;       ///< current, eased-toward-targetScale each frame in OnUpdate()
         Csm::csmFloat32 targetScale; ///< set by SetCharacterZoom(); scale eases toward this
         bool autoPositioned;
+        Csm::csmFloat32 mouthY;      ///< current mouth openness, eased toward 0 when stale
+        bool hasMouth;               ///< ever received a mouth sample
+        Csm::csmFloat32 mouthAge;    ///< seconds since the last mouth sample
+        Csm::csmFloat32 lookX;
+        Csm::csmFloat32 lookY;
+        bool hasLook;                ///< IPC look override active
     };
 
     CharacterSlot* FindSlot(int characterId);
@@ -157,4 +198,5 @@ private:
     Csm::csmVector<Csm::csmString> _modelDir; ///< モデルディレクトリ名のコンテナ（カタログ、全キャラクター共通）
     Csm::csmVector<Csm::csmString> _modelBasePath; ///< 各モデルの親ディレクトリパス
     Csm::csmVector<Csm::csmString> _modelJsonName; ///< 各モデルの.model3.jsonファイル名
+    std::map<std::string, Csm::csmInt32> _modelIndexByName; ///< モデル名→カタログindex（SetUpModelで構築）
 };

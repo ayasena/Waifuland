@@ -108,19 +108,13 @@ int main(int argc, char* argv[])
 
     // Build the initial character roster from config.
     LAppLive2DManager* mgr = LAppLive2DManager::GetInstance();
-    Csm::csmVector<Csm::csmString> dirs = mgr->GetModelDir();
+    const Csm::csmVector<Csm::csmString>& dirs = mgr->GetModelDir();
 
     bool anyAdded = false;
     for (size_t i = 0; i < config.characters.size(); i++) {
         const CharacterConfig& c = config.characters[i];
 
-        Csm::csmInt32 modelIndex = -1;
-        for (Csm::csmInt32 j = 0; j < (Csm::csmInt32)dirs.GetSize(); j++) {
-            if (strcmp(dirs[j].GetRawString(), c.model.c_str()) == 0) {
-                modelIndex = j;
-                break;
-            }
-        }
+        Csm::csmInt32 modelIndex = mgr->FindModelIndex(c.model.c_str());
 
         if (modelIndex < 0) {
             printf("[APP]Character model not found, skipping: %s\n", c.model.c_str());

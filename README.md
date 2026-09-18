@@ -201,7 +201,7 @@ Instead of running `waifuland` once per character, a single instance can show se
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `model` | string | *(required)* | Name of the model subfolder |
-| `x`, `y` | float | auto | Position offset (screen space, roughly -1.0..1.0). Omit both to auto-arrange this character in an evenly-spaced row alongside the others |
+| `x`, `y` | float | auto | Position offset (screen space, roughly -1.0..1.0). Omit both to auto-arrange this character in an evenly-spaced row alongside the others. Supplying only one axis pins the other to 0 (same rule as IPC `add_character`) |
 | `scale` | float | `1.0` | Initial zoom for this character |
 
 A character with no `x`/`y` is auto-positioned; the row re-flows (only for auto-positioned characters) whenever a character is added or removed, including at runtime via IPC. Dragging a character removes it from auto-layout — it keeps whatever position you drop it at.
@@ -277,7 +277,7 @@ Waifuland exposes a Unix domain socket for external control by scripts and progr
 
 ### Targeting a character
 
-When multiple characters are shown at once (see [Multiple characters](#multiple-characters)), every per-model command below accepts an optional `"character": <id>` field to target one of them specifically. Omitting it defaults to character `0`, so existing single-character scripts keep working unchanged. Character ids come from `list_characters` (below) and stay stable across add/remove — they are not the same as a character's position in the list.
+When multiple characters are shown at once (see [Multiple characters](#multiple-characters)), every per-model command below accepts an optional `"character": <id>` field to target one of them specifically. Omitting it follows the first character currently shown (not literal id `0` — ids are never reused, so after a removal the first id may be something else). Character ids come from `list_characters` (below) and stay stable across add/remove — they are not the same as a character's position in the list.
 
 ### CLI Client
 
@@ -439,16 +439,25 @@ Returns current model, zoom, position, and visibility.
 
 #### `set_mouth_y` — Set mouth opening for external lipsync
 
-Value range: `0.0` (closed) to `1.0` (fully open). Send continuously for real-time lipsync.
+Value range: `0.0` (closed) to `1.0` (fully open). Send continuously for real-time lipsync. Routes to one character only (see [Targeting a character](#targeting-a-character)) — other characters are unaffected. When traffic stops, the mouth eases shut on its own. Sends no reply unless `"ack": true` is included, so lipsync-rate traffic stays cheap.
 
 ```bash
 ./waifuland-ctl set_mouth_y --value 0.8
+./waifuland-ctl set_mouth_y --character 1 --value 0.3 --ack
 ```
 
 ```json
 {
     "ok": true
 }
+```
+
+#### `set_mouth_batch` — Set several mouths in one call
+
+Same as `set_mouth_y`, but moves every listed character with a single request — one syscall per audio chunk instead of one per character. Unknown ids are skipped. Silent unless `"ack": true`.
+
+```bash
+./waifuland-ctl set_mouth_batch --mouths '{"0":0.8,"1":0.1}'
 ```
 
 #### `set_model_zoom` — Set model zoom/scale
@@ -518,6 +527,8 @@ Value range: `0.1` to `10.0`.
 ```
 
 #### `set_look` — Override look-at direction (for head/face tracking)
+
+Per character (see [Targeting a character](#targeting-a-character)); `--reset` clears only the targeted character's override.
 
 ```bash
 # Set look direction (x, y range: -1.0 to 1.0)
@@ -619,15 +630,17 @@ The default models directory is `$XDG_CONFIG_HOME/waifuland/models/` (fallback: 
 ```
 waifuland/
 ├── src/                    # Application source code
-│   ├── main.cpp            # Entry point, CLI argument parsing
+│   ├── main.cpp            # Entry point, CLI argument parsing, initial roster
 │   ├── LAppConfig.*        # JSON config file reader (singleton)
 │   ├── LAppWayland.*       # Wayland client setup (display, compositor, EGL, layer-shell)
-│   ├── LAppWaylandRegion.* # Input region management (click-through transparency)
+│   ├── LAppWaylandRegion.* # Input region management (one rect per character)
 │   ├── LAppDelegate.*      # Main app controller, render loop, input handling
-│   ├── LAppLive2DManager.* # Character roster & model lifecycle management
-│   ├── LAppView.*          # View/projection matrices, rendering coordination
-│   ├── LAppModel.*         # Individual Live2D model instance
+│   ├── LAppLive2DManager.* # Scene: character roster + per-character voice state, render loop
+│   ├── LAppView.*          # Touch coordinate transforms (rendering lives in the manager)
+│   ├── LAppModel.*         # Individual Live2D model instance (dumb renderer + animator)
 │   ├── LAppIPC.*           # IPC socket server for external control
+│   ├── LAppTextureManager.*# Shared texture cache (reference-counted by filename)
+│   ├── JsonMini.hpp        # Shared string-aware parser for IPC/config flat JSON
 │   └── LAppDefine.*        # Global constants and configuration
 ├── protocol/               # Wayland protocol XML files
 │   ├── xdg-shell.xml
@@ -642,7 +655,7 @@ waifuland/
 - **No GLFW windowing** — Wayland surfaces are created directly via `wl_compositor` and `zwlr_layer_shell_v1` for overlay behavior that GLFW cannot provide.
 - **EGL rendering** — OpenGL context is managed through EGL, bound directly to the Wayland display.
 - **Layer-shell overlay** — the application renders as a Wayland layer surface, sitting above normal windows.
-- **Input region masking** — only the model's bounding area accepts input; the rest of the surface is fully transparent and click-through.
+- **Input region masking** — one rectangle per character (derived from the same matrix state hit-testing uses) accepts input; the rest of the surface is fully transparent and click-through.
 
 ## Built With
 

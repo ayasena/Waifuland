@@ -41,11 +41,6 @@ struct LAppConfig
     static std::string ExpandTilde(const std::string& path);
 
 private:
-    static std::string Trim(const std::string& s);
-    static std::string ParseStringValue(const std::string& s, const std::string& key);
-    static float ParseFloatValue(const std::string& s, const std::string& key, float defaultVal);
-    static int ParseIntValue(const std::string& s, const std::string& key, int defaultVal);
-    static std::vector<std::string> ParseStringArray(const std::string& s, const std::string& key);
     static std::vector<CharacterConfig> ParseCharacters(const std::string& s);
     static std::string StripComments(const std::string& s);
 };

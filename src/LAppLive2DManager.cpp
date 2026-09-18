@@ -25,7 +25,7 @@
 #include "LAppDelegate.hpp"
 #include "LAppModel.hpp"
 #include "LAppView.hpp"
-#include "LAppSprite.hpp"
+#include "LAppTextureManager.hpp"
 
 using namespace Csm;
 using namespace LAppDefine;
@@ -38,6 +38,11 @@ namespace {
     // roughly [-1, 1] (LAppDefine::ViewLogicalLeft/Right), so this fits a
     // handful of characters side by side without excessive overlap.
     const csmFloat32 CharacterRowSpacing = 0.6f;
+
+    // Seconds after the last mouth sample before the mouth starts easing
+    // shut. Lipsync traffic arrives an order of magnitude faster than this,
+    // so live speech never trips it; silence always closes the mouth.
+    const csmFloat32 MouthFreshSeconds = 0.12f;
 
     void BeganMotion(ACubismMotion* self)
     {
@@ -181,7 +186,7 @@ void LAppLive2DManager::SetUpModel()
         ScanModelsInDir(additionalPath);
     }
 
-    // Sort model list (and keep base paths in sync) - simple bubble sort
+        // Sort model list (and keep base paths in sync) - simple bubble sort 
     for (csmInt32 i = 0; i < (csmInt32)_modelDir.GetSize() - 1; i++)
     {
         for (csmInt32 j = 0; j < (csmInt32)_modelDir.GetSize() - 1 - i; j++)
@@ -203,11 +208,25 @@ void LAppLive2DManager::SetUpModel()
             }
         }
     }
+
+    // Name -> index map for IPC/config lookups (rebuilt with the catalog).
+    _modelIndexByName.clear();
+    for (csmInt32 i = 0; i < (csmInt32)_modelDir.GetSize(); i++)
+    {
+        _modelIndexByName[_modelDir[i].GetRawString()] = i;
+    }
 }
 
-csmVector<csmString> LAppLive2DManager::GetModelDir() const
+const csmVector<csmString>& LAppLive2DManager::GetModelDir() const
 {
     return _modelDir;
+}
+
+csmInt32 LAppLive2DManager::FindModelIndex(const char* name) const
+{
+    if (name == NULL) return -1;
+    std::map<std::string, csmInt32>::const_iterator it = _modelIndexByName.find(name);
+    return (it == _modelIndexByName.end()) ? -1 : it->second;
 }
 
 csmInt32 LAppLive2DManager::GetModelDirSize() const
@@ -253,14 +272,24 @@ const LAppLive2DManager::CharacterSlot* LAppLive2DManager::FindSlot(int characte
 
 void LAppLive2DManager::ReflowAutoLayout()
 {
-    csmInt32 count = (csmInt32)_characters.GetSize();
-    for (csmInt32 i = 0; i < count; i++)
+    // Count the auto-positioned subset first: positions are ordinals within
+    // that subset, not raw roster indices, so manually-placed characters
+    // never skew the symmetry of the remaining row.
+    csmInt32 autoCount = 0;
+    for (csmInt32 i = 0; i < (csmInt32)_characters.GetSize(); i++)
+    {
+        if (_characters[i].autoPositioned) autoCount++;
+    }
+
+    csmInt32 ordinal = 0;
+    for (csmInt32 i = 0; i < (csmInt32)_characters.GetSize(); i++)
     {
         CharacterSlot& slot = _characters[i];
         if (!slot.autoPositioned) continue;
 
-        slot.posX = (static_cast<float>(i) - (count - 1) * 0.5f) * CharacterRowSpacing;
+        slot.posX = (static_cast<float>(ordinal) - (autoCount - 1) * 0.5f) * CharacterRowSpacing;
         slot.posY = 0.0f;
+        ordinal++;
 
         if (slot.model)
         {
@@ -283,6 +312,12 @@ int LAppLive2DManager::AddCharacter(csmInt32 modelDirIndex, bool hasPosition, cs
     slot.scale = scale;
     slot.targetScale = scale;
     slot.autoPositioned = !hasPosition;
+    slot.mouthY = 0.0f;
+    slot.hasMouth = false;
+    slot.mouthAge = 1.0e6f;
+    slot.lookX = 0.0f;
+    slot.lookY = 0.0f;
+    slot.hasLook = false;
 
     _characters.PushBack(slot);
 
@@ -364,6 +399,8 @@ void LAppLive2DManager::SetCharacterModel(int characterId, csmInt32 modelDirInde
     slot->model = newModel;
     slot->modelDirIndex = modelDirIndex;
     newModel->SetCharacterOffset(slot->posX, slot->posY);
+    LAppPal::PrintLogLn("[APP]textures in use: %u",
+        LAppDelegate::GetInstance()->GetTextureManager()->GetLoadedTextureCount());
 }
 
 void LAppLive2DManager::NextCharacterModel(int characterId)
@@ -425,14 +462,50 @@ void LAppLive2DManager::SwitchSkin(int characterId)
     }
 }
 
+void LAppLive2DManager::SetCharacterMouth(int characterId, csmFloat32 value)
+{
+    CharacterSlot* slot = FindSlot(characterId);
+    if (slot == NULL) return;
+
+    if (value < 0.0f) value = 0.0f;
+    if (value > 1.0f) value = 1.0f;
+    slot->mouthY = value;
+    slot->hasMouth = true;
+    slot->mouthAge = 0.0f;
+}
+
+void LAppLive2DManager::SetCharacterLook(int characterId, csmFloat32 x, csmFloat32 y)
+{
+    CharacterSlot* slot = FindSlot(characterId);
+    if (slot == NULL) return;
+
+    slot->lookX = x;
+    slot->lookY = y;
+    slot->hasLook = true;
+}
+
+void LAppLive2DManager::ClearCharacterLook(int characterId)
+{
+    CharacterSlot* slot = FindSlot(characterId);
+    if (slot == NULL) return;
+
+    slot->hasLook = false;
+}
+
 int LAppLive2DManager::HitTestCharacter(csmFloat32 x, csmFloat32 y) const
 {
-    for (csmUint32 i = 0; i < _characters.GetSize(); i++)
+    // Back-to-front: OnUpdate draws roster order, so the last entry paints
+    // on top. The visually topmost character must win overlaps.
+    //
+    // Silhouette, not Head/Body hit areas: authored hit areas cover only
+    // face/torso, so grabbing hair or a limb fell through to whatever was
+    // behind. The full drawable union matches what the user sees.
+    for (csmInt32 i = (csmInt32)_characters.GetSize(); i-- > 0; )
     {
         LAppModel* model = _characters[i].model;
         if (model == NULL) continue;
 
-        if (model->HitTest(HitAreaNameHead, x, y) || model->HitTest(HitAreaNameBody, x, y))
+        if (model->HitTestAnywhere(x, y))
         {
             return _characters[i].id;
         }
@@ -489,28 +562,31 @@ void LAppLive2DManager::OnTap(csmFloat32 x, csmFloat32 y)
         LAppPal::PrintLogLn("[APP]tap point: {x:%.2f y:%.2f}", x, y);
     }
 
-    for (csmUint32 i = 0; i < _characters.GetSize(); i++)
-    {
-        LAppModel* model = _characters[i].model;
-        if (model == NULL) continue;
+    // Single target, same as drag/scroll/switch routing: only the topmost
+    // hit character reacts, so a tap in an overlap zone never animates two
+    // models at once.
+    int id = HitTestCharacter(x, y);
+    if (id < 0) return;
 
-        if (model->HitTest(HitAreaNameHead, x, y))
+    LAppModel* model = GetCharacterModel(id);
+    if (model == NULL) return;
+
+    if (model->HitTest(HitAreaNameHead, x, y))
+    {
+        if (DebugLogEnable)
         {
-            if (DebugLogEnable)
-            {
-                LAppPal::PrintLogLn("[APP]hit area: [%s]", HitAreaNameHead);
-            }
-            model->SetRandomExpression();
+            LAppPal::PrintLogLn("[APP]hit area: [%s]", HitAreaNameHead);
         }
-        else if (model->HitTest(HitAreaNameBody, x, y))
+        model->SetRandomExpression();
+    }
+    else if (model->HitTest(HitAreaNameBody, x, y))
+    {
+        if (DebugLogEnable)
         {
-            if (DebugLogEnable)
-            {
-                LAppPal::PrintLogLn("[APP]hit area: [%s]", HitAreaNameBody);
-            }
-            model->StartRandomMotion(MotionGroupTapBody, PriorityNormal, FinishedMotion, BeganMotion);
-            model->SetRandomExpression();
+            LAppPal::PrintLogLn("[APP]hit area: [%s]", HitAreaNameBody);
         }
+        model->StartRandomMotion(MotionGroupTapBody, PriorityNormal, FinishedMotion, BeganMotion);
+        model->SetRandomExpression();
     }
 }
 
@@ -560,12 +636,24 @@ void LAppLive2DManager::OnUpdate()
             projection.MultiplyByMatrix(_viewMatrix);
         }
 
-        LAppDelegate::GetInstance()->GetView()->PreModelDraw(*model);
+        // Per-character voice sample. Stale mouth traffic decays toward
+        // closed with the same exponential form as zoom easing, so a
+        // character never freezes open-mouthed when lipsync stops.
+        slot.mouthAge += deltaTime;
+        if (slot.hasMouth && slot.mouthAge > MouthFreshSeconds)
+        {
+            slot.mouthY += (0.0f - slot.mouthY) * (1.0f - std::exp(-15.0f * deltaTime));
+            if (slot.mouthY < 0.01f) slot.mouthY = 0.0f;
+        }
+        VoiceSample voice;
+        voice.hasMouth = slot.hasMouth;
+        voice.mouthY = slot.mouthY;
+        voice.hasLook = slot.hasLook;
+        voice.lookX = slot.lookX;
+        voice.lookY = slot.lookY;
 
-        model->Update();
+        model->Update(voice);
         model->Draw(projection);///< 参照渡しなのでprojectionは変質する
-
-        LAppDelegate::GetInstance()->GetView()->PostModelDraw(*model);
     }
 
     // モデルで使用するオフスクリーン管理の終了処理
@@ -578,5 +666,69 @@ void LAppLive2DManager::SetViewMatrix(CubismMatrix44* m)
 {
     for (int i = 0; i < 16; i++) {
         _viewMatrix->GetArray()[i] = m->GetArray()[i];
+    }
+}
+
+void LAppLive2DManager::GetCharacterPixelRects(int windowWidth, int windowHeight,
+                                               csmVector<ScreenRect>& out) const
+{
+    out.Clear();
+    if (windowWidth <= 0 || windowHeight <= 0) return;
+
+    LAppView* view = LAppDelegate::GetInstance()->GetView();
+    if (view == NULL) return;
+
+    const float pad = 6.0f;
+    for (csmUint32 i = 0; i < _characters.GetSize(); i++)
+    {
+        LAppModel* model = _characters[i].model;
+        if (model == NULL || model->GetModel() == NULL) continue;
+
+        csmFloat32 ml, mt, mr, mb;
+        if (!model->GetModelSpaceBounds(ml, mt, mr, mb)) continue;
+
+        // Forward through the same matrix hit-testing inverts through, so
+        // the clickable region and the hit test can never disagree.
+        CubismMatrix44* matrix = model->GetModelMatrix();
+        float devMinX = 0.0f, devMinY = 0.0f, devMaxX = 0.0f, devMaxY = 0.0f;
+        bool first = true;
+        const float corners[4][2] = { { ml, mt }, { mr, mt }, { ml, mb }, { mr, mb } };
+        for (int c = 0; c < 4; c++)
+        {
+            float sx = matrix->TransformX(corners[c][0]);
+            float sy = matrix->TransformY(corners[c][1]);
+            float dx = 0.0f, dy = 0.0f;
+            view->ScreenToDevice(sx, sy, &dx, &dy);
+            if (first)
+            {
+                devMinX = devMaxX = dx;
+                devMinY = devMaxY = dy;
+                first = false;
+            }
+            else
+            {
+                if (dx < devMinX) devMinX = dx;
+                if (dx > devMaxX) devMaxX = dx;
+                if (dy < devMinY) devMinY = dy;
+                if (dy > devMaxY) devMaxY = dy;
+            }
+        }
+
+        int left = (int)(devMinX - pad);
+        int top = (int)(devMinY - pad);
+        int right = (int)(devMaxX + pad + 1.0f);
+        int bottom = (int)(devMaxY + pad + 1.0f);
+        if (left < 0) left = 0;
+        if (top < 0) top = 0;
+        if (right > windowWidth) right = windowWidth;
+        if (bottom > windowHeight) bottom = windowHeight;
+        if (right <= left || bottom <= top) continue;
+
+        ScreenRect rect;
+        rect.left = left;
+        rect.top = top;
+        rect.width = right - left;
+        rect.height = bottom - top;
+        out.PushBack(rect);
     }
 }
