@@ -2,44 +2,44 @@
 cmake = "3.30"
 
 # `mise trust && mise bootstrap --yes` installs the system packages this
-# project needs to build, per OS package manager (only the manager present
-# on the host actually runs). macOS also needs the Xcode Command Line Tools
-# (`xcode-select --install`) — that's not something a package manager can
-# install, so it isn't listed here; see README.md.
+# project needs to build, scoped per OS via `os` (brew would otherwise also
+# run on Linux through linuxbrew). macOS also needs the Xcode Command Line
+# Tools (`xcode-select --install`) — that's not something a package manager
+# can install, so it isn't listed here; see README.md.
 [bootstrap.packages]
-"apt:build-essential" = {}
-"apt:pkg-config" = {}
-"apt:libwayland-dev" = {}
-"apt:wayland-protocols" = {}
-"apt:libegl-dev" = {}
-"apt:libgl-dev" = {}
-"apt:curl" = {}
-"apt:unzip" = {}
-"apt:socat" = {}
+"apt:build-essential" = { os = ["linux"] }
+"apt:pkg-config" = { os = ["linux"] }
+"apt:libwayland-dev" = { os = ["linux"] }
+"apt:wayland-protocols" = { os = ["linux"] }
+"apt:libegl-dev" = { os = ["linux"] }
+"apt:libgl-dev" = { os = ["linux"] }
+"apt:curl" = { os = ["linux"] }
+"apt:unzip" = { os = ["linux"] }
+"apt:socat" = { os = ["linux"] }
 
-"pacman:base-devel" = {}
-"pacman:pkgconf" = {}
-"pacman:wayland" = {}
-"pacman:wayland-protocols" = {}
-"pacman:libglvnd" = {}
-"pacman:egl-wayland" = {}
-"pacman:curl" = {}
-"pacman:unzip" = {}
-"pacman:socat" = {}
+"pacman:base-devel" = { os = ["linux"] }
+"pacman:pkgconf" = { os = ["linux"] }
+"pacman:wayland" = { os = ["linux"] }
+"pacman:wayland-protocols" = { os = ["linux"] }
+"pacman:libglvnd" = { os = ["linux"] }
+"pacman:egl-wayland" = { os = ["linux"] }
+"pacman:curl" = { os = ["linux"] }
+"pacman:unzip" = { os = ["linux"] }
+"pacman:socat" = { os = ["linux"] }
 
-"dnf:gcc-c++" = {}
-"dnf:pkgconf-pkg-config" = {}
-"dnf:wayland-devel" = {}
-"dnf:wayland-protocols-devel" = {}
-"dnf:mesa-libEGL-devel" = {}
-"dnf:mesa-libGL-devel" = {}
-"dnf:curl" = {}
-"dnf:unzip" = {}
-"dnf:socat" = {}
+"dnf:gcc-c++" = { os = ["linux"] }
+"dnf:pkgconf-pkg-config" = { os = ["linux"] }
+"dnf:wayland-devel" = { os = ["linux"] }
+"dnf:wayland-protocols-devel" = { os = ["linux"] }
+"dnf:mesa-libEGL-devel" = { os = ["linux"] }
+"dnf:mesa-libGL-devel" = { os = ["linux"] }
+"dnf:curl" = { os = ["linux"] }
+"dnf:unzip" = { os = ["linux"] }
+"dnf:socat" = { os = ["linux"] }
 
-"brew:cmake" = {}
-"brew:curl" = {}
-"brew:socat" = {}
+"brew:cmake" = { os = ["macos"] }
+"brew:curl" = { os = ["macos"] }
+"brew:socat" = { os = ["macos"] }
 
 [tasks.bootstrap]
 description = "Sanity-check the toolchain after `mise bootstrap`"
