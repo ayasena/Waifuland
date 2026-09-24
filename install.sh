@@ -3,6 +3,12 @@
 # Waifuland Install Script
 # Checks dependencies, downloads third-party libraries, and builds the project.
 #
+# Usage: ./install.sh [fedora|arch]
+#   With a distro (auto-detected from /etc/os-release otherwise), build deps are
+#   installed via dnf/pacman first. Sucrette's extras module calls it this way.
+#   WAIFULAND_ACCEPT_LIVE2D_LICENSE=1 accepts the Cubism SDK licenses without a
+#   prompt; with neither that nor a terminal, the install is skipped (exit 0).
+#
 
 set -euo pipefail
 
@@ -31,6 +37,18 @@ cd "$SCRIPT_DIR"
 
 SDK_DIR="CubismSdkForNative-5-r.5"
 NPROC=$(nproc 2>/dev/null || echo 4)
+DISTRO="${1:-$( { . /etc/os-release && echo "${ID_LIKE:-$ID}"; } 2>/dev/null | grep -oE 'fedora|arch' | head -1 || true)}"
+
+# ─── Step 0: Install build dependencies (Fedora / Arch) ──────────────────────
+
+case "$DISTRO" in
+    fedora) step "Installing build dependencies (dnf)"
+            sudo dnf install -y gcc-c++ make cmake pkgconf-pkg-config wayland-devel wayland-protocols-devel \
+                mesa-libEGL-devel mesa-libGL-devel mesa-libGLU-devel curl unzip socat ;;
+    arch)   step "Installing build dependencies (pacman)"
+            sudo pacman -S --needed --noconfirm base-devel cmake pkgconf wayland wayland-protocols \
+                libglvnd glu egl-wayland curl unzip socat ;;
+esac
 
 # ─── Step 1: Check system dependencies ───────────────────────────────────────
 
@@ -104,9 +122,9 @@ if [ "$ERRORS" -gt 0 ]; then
     if [ "$IS_MACOS" = true ]; then
         info  "macOS:            xcode-select --install ; brew install cmake curl"
     else
-        info  "Arch Linux:       sudo pacman -S --needed base-devel cmake pkgconf wayland wayland-protocols libglvnd egl-wayland curl unzip"
-        info  "Ubuntu / Debian:  sudo apt install build-essential cmake pkg-config libwayland-dev wayland-protocols libegl-dev libgl-dev curl unzip"
-        info  "Fedora:           sudo dnf install gcc-c++ cmake pkgconf-pkg-config wayland-devel wayland-protocols-devel mesa-libEGL-devel mesa-libGL-devel curl unzip"
+        info  "Arch Linux:       sudo pacman -S --needed base-devel cmake pkgconf wayland wayland-protocols libglvnd glu egl-wayland curl unzip"
+        info  "Ubuntu / Debian:  sudo apt install build-essential cmake pkg-config libwayland-dev wayland-protocols libegl-dev libgl-dev libglu1-mesa-dev curl unzip"
+        info  "Fedora:           sudo dnf install gcc-c++ cmake pkgconf-pkg-config wayland-devel wayland-protocols-devel mesa-libEGL-devel mesa-libGL-devel mesa-libGLU-devel curl unzip"
     fi
     exit 1
 fi
@@ -124,7 +142,16 @@ else
     info "1. https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html"
     info "2. https://www.live2d.com/eula/live2d-open-software-license-agreement_en.html"
     echo ""
-    read -p "Do you agree to the Live2D Software License Agreements? [y/N] " CONSENT
+    if [ "${WAIFULAND_ACCEPT_LIVE2D_LICENSE:-}" = 1 ]; then
+        CONSENT=y
+        info "Accepted via WAIFULAND_ACCEPT_LIVE2D_LICENSE=1"
+    elif [ -t 0 ]; then
+        read -p "Do you agree to the Live2D Software License Agreements? [y/N] " CONSENT
+    else
+        warn "No terminal to ask for consent — skipping waifuland. After reading the licenses, re-run:"
+        info "  WAIFULAND_ACCEPT_LIVE2D_LICENSE=1 bash $SCRIPT_DIR/install.sh $DISTRO"
+        exit 0
+    fi
     if [[ "$CONSENT" =~ ^[Yy]$ ]]; then
         info "Downloading Live2D Cubism SDK for Native 5-r.5..."
         SDK_URL="https://cubism.live2d.com/sdk-native/bin/CubismSdkForNative-5-r.5.zip?event=cubism_sdk_download&sdk_type=Native&user_status=update&user_type=&version=5-r.5&lang=en"
@@ -219,7 +246,8 @@ CONFIG_FILE="$CONFIG_DIR/config.json"
 
 mkdir -p "$INSTALL_BIN_DIR"
 install -m 755 "$BUILD_DIR/bin/waifuland" "$INSTALL_BIN_DIR/waifuland"
-success "Installed binary to $INSTALL_BIN_DIR/waifuland"
+install -m 755 "$SCRIPT_DIR/waifuland-ctl" "$INSTALL_BIN_DIR/waifuland-ctl"
+success "Installed waifuland + waifuland-ctl to $INSTALL_BIN_DIR"
 
 if [ -f "$CONFIG_FILE" ]; then
     success "Config already exists at $CONFIG_FILE, leaving it untouched"
@@ -239,6 +267,21 @@ case ":$PATH:" in
        info "  export PATH=\"\$HOME/.local/bin:\$PATH\"" ;;
 esac
 
+# systemd user unit (Linux): starts with the graphical session, restarts on crash.
+if [ "$IS_MACOS" = false ] && command -v systemctl &>/dev/null; then
+    UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+    mkdir -p "$UNIT_DIR"
+    install -m 644 "$SCRIPT_DIR/share/waifuland.service" "$UNIT_DIR/waifuland.service"
+    systemctl --user daemon-reload
+    systemctl --user enable waifuland.service
+    systemctl --user try-restart waifuland.service || true
+    success "Enabled waifuland.service (systemctl --user status waifuland)"
+fi
+
+if [ "$IS_MACOS" = false ] && [[ "$(uname -m)" =~ ^(aarch64|arm64)$ ]]; then
+    warn "Linux arm64 links Live2D's experimental Cubism Core build"
+fi
+
 # ─── Done ─────────────────────────────────────────────────────────────────────
 
 echo ""
@@ -254,5 +297,7 @@ echo -e "  Config:"
 echo -e "    ${BOLD}$CONFIG_FILE${RESET}"
 echo ""
 echo -e "  Default model directory:"
-echo -e "    ${BOLD}$CONFIG_DIR/models/${RESET}"
+echo -e "    ${BOLD}$CONFIG_DIR/models/<Name>/<Name>.model3.json${RESET}"
+echo -e "  List each model under \"characters\" in config.json; fairyd [[cast]]"
+echo -e "  members bind to them by overlay_model = \"<Name>\"."
 echo ""

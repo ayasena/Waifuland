@@ -1,0 +1,21 @@
+[Unit]
+Description=Waifuland — Live2D desktop overlay
+Documentation=https://github.com/ayasena/Waifuland
+PartOf=graphical-session.target
+After=graphical-session.target
+# No compositor (e.g. started outside a Wayland session) is not transient:
+# stop retrying instead of flooding the journal.
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+# WAYLAND_DISPLAY / HYPRLAND_INSTANCE_SIGNATURE come from the compositor's
+# import into the user manager environment. No filesystem sandboxing: it needs
+# $XDG_RUNTIME_DIR for the Wayland socket and its own IPC socket.
+ExecStart=%h/.local/bin/waifuland
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=graphical-session.target

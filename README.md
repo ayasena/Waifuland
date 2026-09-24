@@ -73,17 +73,17 @@ If you use [mise](https://mise.jdx.dev/), `mise trust && mise bootstrap --yes` i
 
 **Arch Linux:**
 ```bash
-sudo pacman -S --needed base-devel cmake pkgconf wayland wayland-protocols libglvnd egl-wayland curl unzip
+sudo pacman -S --needed base-devel cmake pkgconf wayland wayland-protocols libglvnd glu egl-wayland curl unzip
 ```
 
 **Ubuntu / Debian:**
 ```bash
-sudo apt install build-essential cmake pkg-config libwayland-dev wayland-protocols libegl-dev libgl-dev curl unzip
+sudo apt install build-essential cmake pkg-config libwayland-dev wayland-protocols libegl-dev libgl-dev libglu1-mesa-dev curl unzip
 ```
 
 **Fedora:**
 ```bash
-sudo dnf install gcc-c++ cmake pkgconf-pkg-config wayland-devel wayland-protocols-devel mesa-libEGL-devel mesa-libGL-devel curl unzip
+sudo dnf install gcc-c++ cmake pkgconf-pkg-config wayland-devel wayland-protocols-devel mesa-libEGL-devel mesa-libGL-devel mesa-libGLU-devel curl unzip
 ```
 
 **macOS:**
@@ -134,6 +134,13 @@ make -j$(nproc)
 ```
 
 The binary will be at `build/bin/waifuland`.
+
+### Sucrette / fairyd
+
+`./install.sh fedora` (or `arch`) first installs the build dependencies via dnf/pacman. [Sucrette](https://github.com/ayasena/sucrette)'s extras module runs it this way. It also installs `waifuland` and `waifuland-ctl` to `~/.local/bin` and enables the `waifuland.service` systemd user unit (started with `graphical-session.target`).
+
+- The Cubism SDK license prompt needs a terminal. Without one, set `WAIFULAND_ACCEPT_LIVE2D_LICENSE=1` to accept the licenses. Otherwise the install is skipped (exit 0) and the script prints a re-run hint.
+- [fairyd](https://github.com/ayasena/fairyd) talks to `$XDG_RUNTIME_DIR/waifuland.sock` for its `[[cast]]` members, binding each one by `overlay_model = "<model name>"`. List those models under `characters` in `config.json`.
 
 ## Usage
 
