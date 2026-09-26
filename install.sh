@@ -7,7 +7,8 @@
 #   With a distro (auto-detected from /etc/os-release otherwise), build deps are
 #   installed via dnf/pacman first. Sucrette's extras module calls it this way.
 #   WAIFULAND_ACCEPT_LIVE2D_LICENSE=1 accepts the Cubism SDK licenses without a
-#   prompt; with neither that nor a terminal, the install is skipped (exit 0).
+#   prompt; with neither that nor a terminal, the install is skipped (exit 3,
+#   which sucrette's extras module reports as "skipped", not "installed").
 #
 
 set -euo pipefail
@@ -150,7 +151,7 @@ else
     else
         warn "No terminal to ask for consent — skipping waifuland. After reading the licenses, re-run:"
         info "  WAIFULAND_ACCEPT_LIVE2D_LICENSE=1 bash $SCRIPT_DIR/install.sh $DISTRO"
-        exit 0
+        exit 3
     fi
     if [[ "$CONSENT" =~ ^[Yy]$ ]]; then
         info "Downloading Live2D Cubism SDK for Native 5-r.5..."
@@ -178,7 +179,7 @@ else
         info  ""
         info  "Extract it to this directory so the structure looks like:"
         info  "  $(pwd)/$SDK_DIR/"
-        exit 1
+        exit 3   # declined is a choice, not a failure
     fi
 fi
 
