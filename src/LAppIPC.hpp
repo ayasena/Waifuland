@@ -38,12 +38,24 @@ public:
      */
     const std::string& GetSocketPath() const { return _socketPath; }
 
+    /**
+     * @brief Where the characters should look instead of the real cursor
+     *        (global logical pixels), set by `set_gaze_target`. False once
+     *        the sender stops updating it (stale after half a second), so
+     *        the gaze falls back to the real cursor by itself.
+     */
+    static bool GazeTarget(int& x, int& y);
+
 private:
     LAppIPC();
     ~LAppIPC();
 
     std::string ProcessCommand(const std::string& json);
     void HandleClient(int clientFd);
+
+    static int _gazeX;
+    static int _gazeY;
+    static double _gazeAt;  ///< steady-clock seconds of the last update; < 0 = none
 
     int _serverFd;
     std::string _socketPath;

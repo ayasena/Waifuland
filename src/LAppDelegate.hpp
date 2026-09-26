@@ -72,6 +72,11 @@ public:
     void OnMouseCallBack(void* window, double x, double y);
 
     /**
+     * @brief Turn every character's eyes toward (x, y), window-local pixels.
+     */
+    void LookAt(float x, float y);
+
+    /**
      * @brief   ウィンドウクライアント領域の幅、高さ取得
      */
     static void GetClientSize(int& rWidth, int& rHeight);

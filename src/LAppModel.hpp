@@ -27,6 +27,8 @@ struct VoiceSample
 {
     bool hasMouth;
     Csm::csmFloat32 mouthY; ///< 0.0 (closed) .. 1.0 (fully open)
+    bool hasForm;
+    Csm::csmFloat32 mouthForm; ///< -1.0 (round: o, u) .. 1.0 (wide: i, e); ParamMouthForm
     bool hasLook;
     Csm::csmFloat32 lookX;
     Csm::csmFloat32 lookY;

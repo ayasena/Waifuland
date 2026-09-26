@@ -208,6 +208,16 @@ void LAppDelegate::Run()
             OnMouseCallBack(nullptr, (double)local_x, (double)local_y);
         }
 
+        // A gaze target from IPC (the shell's companion cursor) wins over
+        // the real cursor for where the eyes go — but only the eyes: taps,
+        // hit tests and drags above keep using the real pointer, and a
+        // character being dragged looks where the user is.
+        int gx, gy;
+        if (!_isDraggingWindow && LAppIPC::GazeTarget(gx, gy) && !_wlContext.outputs.empty()) {
+            PlatformContext::OutputInfo* out = _wlContext.outputs[_wlContext.current_output_index];
+            LookAt((float)(gx - out->x), (float)(gy - out->y));
+        }
+
         // Poll IPC commands
         LAppIPC::GetInstance()->Poll();
 
@@ -409,6 +419,23 @@ void LAppDelegate::OnMouseCallBack(void* window, int button, int action, int mod
     }
 }
 
+void LAppDelegate::LookAt(float x, float y)
+{
+    // Calculate viewX / viewY based on look center. Shared across every
+    // character (each has its own drag/look state — see
+    // LAppLive2DManager::OnDrag), so this is deliberately not per-character.
+    int width, height;
+    width = _windowWidth; height = _windowHeight;
+
+    float faceCenterX = (float)width * _lookCenterX;
+    float faceCenterY = (float)height * _lookCenterY;
+
+    float viewX = (x - faceCenterX) / ((float)width / 2.0f);
+    float viewY = -(y - faceCenterY) / ((float)height / 2.0f);
+
+    LAppLive2DManager::GetInstance()->OnDrag(viewX, viewY);
+}
+
 void LAppDelegate::OnMouseCallBack(void* window, double x, double y)
 {
     _mouseX = static_cast<float>(x);
@@ -419,19 +446,7 @@ void LAppDelegate::OnMouseCallBack(void* window, double x, double y)
         return;
     }
 
-    // Calculate viewX / viewY based on look center. Shared across every
-    // character (each has its own drag/look state — see
-    // LAppLive2DManager::OnDrag), so this is deliberately not per-character.
-    int width, height;
-    width = _windowWidth; height = _windowHeight;
-
-    float faceCenterX = (float)width * _lookCenterX;
-    float faceCenterY = (float)height * _lookCenterY;
-
-    float viewX = (_mouseX - faceCenterX) / ((float)width / 2.0f);
-    float viewY = -(_mouseY - faceCenterY) / ((float)height / 2.0f);
-
-    LAppLive2DManager::GetInstance()->OnDrag(viewX, viewY);
+    LookAt(_mouseX, _mouseY);
 
     if (_captured && _isDraggingWindow && _draggedCharacterId >= 0)
     {

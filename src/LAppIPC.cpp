@@ -17,11 +17,33 @@
 #include <map>
 #include <sstream>
 #include <algorithm>
+#include <chrono>
 
 using namespace Csm;
 
 namespace {
     LAppIPC* s_instance = NULL;
+
+    // A gaze target older than this is ignored: the sender went away.
+    const double GazeFreshSeconds = 0.5;
+
+    double SteadySeconds()
+    {
+        using namespace std::chrono;
+        return duration<double>(steady_clock::now().time_since_epoch()).count();
+    }
+}
+
+int LAppIPC::_gazeX = 0;
+int LAppIPC::_gazeY = 0;
+double LAppIPC::_gazeAt = -1.0;
+
+bool LAppIPC::GazeTarget(int& x, int& y)
+{
+    if (_gazeAt < 0.0 || SteadySeconds() - _gazeAt > GazeFreshSeconds) return false;
+    x = _gazeX;
+    y = _gazeY;
+    return true;
 }
 
 LAppIPC* LAppIPC::GetInstance()
@@ -450,6 +472,22 @@ std::string LAppIPC::ProcessCommand(const std::string& json)
         return "";
     }
 
+    // ── set_mouth ──
+    // Viseme lipsync: {"command":"set_mouth","character":<id>,"open":0..1,"form":-1..1}.
+    // form: -1 round (o, u) .. 1 wide (i, e). Silent unless "ack":true.
+    if (command == "set_mouth")
+    {
+        int charId = ResolveCharacter(req, mgr);
+        if (mgr->GetCharacterModel(charId) == NULL)
+        {
+            return "{\"ok\":false,\"error\":\"no such character\"}";
+        }
+
+        mgr->SetCharacterMouthShape(charId, req.GetFloat("open", 0.0f), req.GetFloat("form", 0.0f));
+        if (req.GetBool("ack", false)) return "{\"ok\":true}";
+        return "";
+    }
+
     // ── set_mouth_batch ──
     // One syscall per audio chunk instead of one per character:
     // {"command":"set_mouth_batch","mouths":{"<id>":<0..1>, ...}}.
@@ -605,6 +643,28 @@ std::string LAppIPC::ProcessCommand(const std::string& json)
         std::ostringstream oss;
         oss << "{\"ok\":true,\"hidden\":" << (app->_isHidden ? "true" : "false") << "}";
         return oss.str();
+    }
+
+    // ── set_gaze_target ──
+    // Every character looks at this point (global logical pixels, same space
+    // as hyprctl cursorpos) instead of the real cursor, e.g. a companion
+    // cursor drawn by the shell: {"command":"set_gaze_target","x":..,"y":..}.
+    // Send it at least every 0.5 s to keep it; {"release":true} (or silence)
+    // hands the gaze back to the real cursor. Silent unless "ack":true.
+    if (command == "set_gaze_target")
+    {
+        if (req.GetBool("release", false))
+        {
+            _gazeAt = -1.0;
+        }
+        else
+        {
+            _gazeX = (int)req.GetFloat("x", 0.0f);
+            _gazeY = (int)req.GetFloat("y", 0.0f);
+            _gazeAt = SteadySeconds();
+        }
+        if (req.GetBool("ack", false)) return "{\"ok\":true}";
+        return "";
     }
 
     // ── set_look ──

@@ -459,6 +459,14 @@ Value range: `0.0` (closed) to `1.0` (fully open). Send continuously for real-ti
 }
 ```
 
+#### `set_mouth` — Set mouth opening and shape (viseme lipsync)
+
+Like `set_mouth_y`, plus the mouth's shape: `open` `0.0`..`1.0` (ParamMouthOpenY) and `form` `-1.0` (round, as in o/u) .. `1.0` (wide, as in i/e) (ParamMouthForm). Models without ParamMouthForm ignore `form`. Silent unless `"ack": true`.
+
+```json
+{"command": "set_mouth", "character": 1, "open": 0.6, "form": -0.8}
+```
+
 #### `set_mouth_batch` — Set several mouths in one call
 
 Same as `set_mouth_y`, but moves every listed character with a single request — one syscall per audio chunk instead of one per character. Unknown ids are skipped. Silent unless `"ack": true`.
@@ -549,6 +557,15 @@ Per character (see [Targeting a character](#targeting-a-character)); `--reset` c
 {
     "ok": true
 }
+```
+
+#### `set_gaze_target` — Look at a point other than the cursor
+
+Every character's eyes follow this point (global logical pixels, the same space as `hyprctl cursorpos`) instead of the real cursor — e.g. a companion cursor drawn by a shell. Taps, hit tests and dragging still use the real pointer. Resend at least every 0.5 s: once updates stop, the gaze goes back to the real cursor by itself (or right away with `"release": true`). Silent unless `"ack": true`.
+
+```json
+{"command": "set_gaze_target", "x": 1200, "y": 640}
+{"command": "set_gaze_target", "release": true}
 ```
 
 #### `list_characters` — List all currently shown characters

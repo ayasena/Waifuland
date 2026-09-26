@@ -569,6 +569,14 @@ void LAppModel::Update(const VoiceSample& voice)
             _model->SetParameterValue(_lipSyncIds[i], voice.mouthY);
         }
     }
+    // Mouth shape (visemes): round for o/u, wide for i/e. Models without
+    // ParamMouthForm simply ignore it.
+    if (voice.hasForm)
+    {
+        static const CubismIdHandle mouthFormId =
+            CubismFramework::GetIdManager()->GetId(DefaultParameterId::ParamMouthForm);
+        _model->SetParameterValue(mouthFormId, voice.mouthForm);
+    }
 
     // Per-character look-at override (IPC head tracking, routed by manager).
     if (voice.hasLook)

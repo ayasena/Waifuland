@@ -317,6 +317,8 @@ int LAppLive2DManager::AddCharacter(csmInt32 modelDirIndex, bool hasPosition, cs
     slot.mouthY = 0.0f;
     slot.hasMouth = false;
     slot.mouthAge = 1.0e6f;
+    slot.mouthForm = 0.0f;
+    slot.hasForm = false;
     slot.lookX = 0.0f;
     slot.lookY = 0.0f;
     slot.hasLook = false;
@@ -477,6 +479,18 @@ void LAppLive2DManager::SetCharacterMouth(int characterId, csmFloat32 value)
     slot->mouthY = value;
     slot->hasMouth = true;
     slot->mouthAge = 0.0f;
+}
+
+void LAppLive2DManager::SetCharacterMouthShape(int characterId, csmFloat32 open, csmFloat32 form)
+{
+    CharacterSlot* slot = FindSlot(characterId);
+    if (slot == NULL) return;
+
+    SetCharacterMouth(characterId, open);
+    if (form < -1.0f) form = -1.0f;
+    if (form > 1.0f) form = 1.0f;
+    slot->mouthForm = form;
+    slot->hasForm = true;
 }
 
 void LAppLive2DManager::SetCharacterLook(int characterId, csmFloat32 x, csmFloat32 y)
@@ -674,12 +688,16 @@ void LAppLive2DManager::OnUpdate()
         slot.mouthAge += deltaTime;
         if (slot.hasMouth && slot.mouthAge > MouthFreshSeconds)
         {
-            slot.mouthY += (0.0f - slot.mouthY) * (1.0f - std::exp(-15.0f * deltaTime));
+            const csmFloat32 ease = 1.0f - std::exp(-15.0f * deltaTime);
+            slot.mouthY += (0.0f - slot.mouthY) * ease;
             if (slot.mouthY < 0.01f) slot.mouthY = 0.0f;
+            slot.mouthForm += (0.0f - slot.mouthForm) * ease;
         }
         VoiceSample voice;
         voice.hasMouth = slot.hasMouth;
         voice.mouthY = slot.mouthY;
+        voice.hasForm = slot.hasForm;
+        voice.mouthForm = slot.mouthForm;
         voice.hasLook = slot.hasLook;
         voice.lookX = slot.lookX;
         voice.lookY = slot.lookY;

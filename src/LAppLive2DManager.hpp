@@ -127,6 +127,8 @@ public:
     /// 指定キャラクターの口の開きを設定する（IPCリップシンク用）。
     /// freshness 期限切れ後は OnUpdate() が自動で閉じる方向へ減衰させる。
     void SetCharacterMouth(int characterId, Csm::csmFloat32 value);
+    /// Openness and shape together (viseme lipsync); form -1 round .. 1 wide.
+    void SetCharacterMouthShape(int characterId, Csm::csmFloat32 open, Csm::csmFloat32 form);
     /// 指定キャラクターの視線オーバーライドを設定/解除する。
     void SetCharacterLook(int characterId, Csm::csmFloat32 x, Csm::csmFloat32 y);
     void ClearCharacterLook(int characterId);
@@ -186,6 +188,8 @@ private:
         Csm::csmFloat32 mouthY;      ///< current mouth openness, eased toward 0 when stale
         bool hasMouth;               ///< ever received a mouth sample
         Csm::csmFloat32 mouthAge;    ///< seconds since the last mouth sample
+        Csm::csmFloat32 mouthForm;   ///< current mouth shape, eased toward 0 when stale
+        bool hasForm;                ///< ever received a mouth shape
         Csm::csmFloat32 lookX;
         Csm::csmFloat32 lookY;
         bool hasLook;                ///< IPC look override active
