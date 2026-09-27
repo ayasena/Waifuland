@@ -742,11 +742,16 @@ void LAppLive2DManager::GetCharacterPixelRects(int windowWidth, int windowHeight
         CubismMatrix44* matrix = model->GetModelMatrix();
         float devMinX = 0.0f, devMinY = 0.0f, devMaxX = 0.0f, devMaxY = 0.0f;
         bool first = true;
+        // Zoom lives outside _modelMatrix, in OnUpdate()'s projection
+        // (drawn = scale * model). Apply it too, or a zoomed character's box
+        // (and the alpha readback cropped to it) misses what's on screen.
+        csmFloat32 scale = _characters[i].scale;
+        if (scale <= 0.0f) scale = 1.0f;
         const float corners[4][2] = { { ml, mt }, { mr, mt }, { ml, mb }, { mr, mb } };
         for (int c = 0; c < 4; c++)
         {
-            float sx = matrix->TransformX(corners[c][0]);
-            float sy = matrix->TransformY(corners[c][1]);
+            float sx = scale * matrix->TransformX(corners[c][0]);
+            float sy = scale * matrix->TransformY(corners[c][1]);
             float dx = 0.0f, dy = 0.0f;
             view->ScreenToDevice(sx, sy, &dx, &dy);
             if (first)
