@@ -1,3 +1,4 @@
 #pragma once
 struct WaylandContext;
-void UpdateWaylandInputRegion(WaylandContext* wl);
+// Call after rendering, before eglSwapBuffers (the swap commits the region).
+void UpdateWaylandInputRegion(WaylandContext* wl, bool hidden);

@@ -775,9 +775,31 @@ csmBool LAppModel::HitTestAnywhere(csmFloat32 x, csmFloat32 y) const
             if (vy > bottom) bottom = vy;
         }
 
-        if ((left <= tx) && (tx <= right) && (top <= ty) && (ty <= bottom))
+        if (!((left <= tx) && (tx <= right) && (top <= ty) && (ty <= bottom)))
         {
-            return true;
+            continue;
+        }
+
+        // The box is only a quick reject: a strand of hair or an arm has a
+        // box full of empty space. Test the actual mesh triangles (Live2D's
+        // "Triangles" raycast precision) so only the painted mesh grabs.
+        const csmInt32 indexCount = _model->GetDrawableVertexIndexCount(d);
+        const csmUint16* indices = _model->GetDrawableVertexIndices(d);
+        if (indices == NULL) continue;
+        for (csmInt32 k = 0; k + 2 < indexCount; k += 3)
+        {
+            const csmFloat32* a = &vertices[indices[k] * 2];
+            const csmFloat32* b = &vertices[indices[k + 1] * 2];
+            const csmFloat32* c = &vertices[indices[k + 2] * 2];
+            const csmFloat32 d0 = (b[0] - a[0]) * (ty - a[1]) - (b[1] - a[1]) * (tx - a[0]);
+            const csmFloat32 d1 = (c[0] - b[0]) * (ty - b[1]) - (c[1] - b[1]) * (tx - b[0]);
+            const csmFloat32 d2 = (a[0] - c[0]) * (ty - c[1]) - (a[1] - c[1]) * (tx - c[0]);
+            const bool hasNeg = d0 < 0.0f || d1 < 0.0f || d2 < 0.0f;
+            const bool hasPos = d0 > 0.0f || d1 > 0.0f || d2 > 0.0f;
+            if (!(hasNeg && hasPos))
+            {
+                return true;
+            }
         }
     }
     return false;

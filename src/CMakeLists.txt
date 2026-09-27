@@ -50,6 +50,7 @@ else ()
         ${CMAKE_CURRENT_SOURCE_DIR}/LAppWayland.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/LAppWaylandRegion.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/LAppWaylandRegion.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/AlphaRegion.hpp
     )
   endif ()
 endif ()

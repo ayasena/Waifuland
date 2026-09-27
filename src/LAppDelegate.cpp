@@ -239,7 +239,7 @@ void LAppDelegate::Run()
         UpdateMacOSInputRegion(&_wlContext, hx, hy);
         MacOSSwapBuffers(&_wlContext);
 #else
-        UpdateWaylandInputRegion(&_wlContext);
+        UpdateWaylandInputRegion(&_wlContext, _isHidden);
         eglSwapBuffers(_wlContext.egl_display, _wlContext.egl_surface);
 #endif
 
