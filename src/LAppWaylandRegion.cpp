@@ -99,7 +99,7 @@ void Consume(Slot& slot)
 }
 
 // Harvest finished readbacks (oldest first), then queue this frame's.
-void Capture(int surfaceH, int left, int top, int width, int height)
+void Capture(int surfaceH, int scale, int left, int top, int width, int height)
 {
     for (int i = 0; i < kSlots; i++)
     {
@@ -134,10 +134,11 @@ void Capture(int surfaceH, int left, int top, int width, int height)
     const GLboolean scissor = glIsEnabled(GL_SCISSOR_TEST);
     if (scissor) glDisable(GL_SCISSOR_TEST);
 
-    const int glY = surfaceH - top - height; // GL origin is bottom-left
+    // Crop is in surface pixels; the framebuffer is surface * scale.
+    const int glY = (surfaceH - top - height) * scale; // GL origin is bottom-left
     glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s.fbo);
-    glBlitFramebuffer(left, glY, left + width, glY + height,
+    glBlitFramebuffer(left * scale, glY, (left + width) * scale, glY + height * scale,
                       0, 0, cw, ch, GL_COLOR_BUFFER_BIT, GL_LINEAR);
 
     glBindFramebuffer(GL_READ_FRAMEBUFFER, s.fbo);
@@ -194,7 +195,7 @@ void UpdateWaylandInputRegion(WaylandContext* wl, bool hidden) {
             if (boxes[i].left + boxes[i].width > r) r = boxes[i].left + boxes[i].width;
             if (boxes[i].top + boxes[i].height > b) b = boxes[i].top + boxes[i].height;
         }
-        Capture(height, l, t, r - l, b - t);
+        Capture(height, wl->scale, l, t, r - l, b - t);
     }
 
     if (s.haveMask)

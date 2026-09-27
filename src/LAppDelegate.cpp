@@ -115,11 +115,7 @@ bool LAppDelegate::Initialize()
     glEnable(GL_BLEND);
     glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 
-#ifdef __APPLE__
     glViewport(0, 0, _wlContext.backingWidth, _wlContext.backingHeight);
-#else
-    glViewport(0, 0, _windowWidth, _windowHeight);
-#endif
 
     // Cubism3の初期化
     InitializeCubism();
@@ -180,18 +176,21 @@ void LAppDelegate::Run()
         int width = _wlContext.width;
         int height = _wlContext.height;
 
-        if((_windowWidth!=width || _windowHeight!=height) && width>0 && height>0) {
+        // The renderer's offscreen targets must match the framebuffer's
+        // pixel size (HiDPI), while the view stays in surface coordinates.
+        static int backingW = 0, backingH = 0;
+        if(((_windowWidth!=width || _windowHeight!=height) ||
+            backingW != _wlContext.backingWidth || backingH != _wlContext.backingHeight) &&
+           width>0 && height>0) {
             _view->Initialize(width, height);
-            LAppLive2DManager::GetInstance()->SetRenderTargetSize(width, height);
+            LAppLive2DManager::GetInstance()->SetRenderTargetSize(_wlContext.backingWidth, _wlContext.backingHeight);
             _windowWidth = width;
             _windowHeight = height;
+            backingW = _wlContext.backingWidth;
+            backingH = _wlContext.backingHeight;
         }
 
-#ifdef __APPLE__
         glViewport(0, 0, _wlContext.backingWidth, _wlContext.backingHeight);
-#else
-        glViewport(0, 0, _windowWidth, _windowHeight);
-#endif
 
         if (_pendingFocusMove) {
             _pendingFocusMove = false;

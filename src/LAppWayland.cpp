@@ -60,6 +60,23 @@ static const struct wl_seat_listener seat_listener = {
     seat_handle_name,
 };
 
+// Render at the output's pixel density instead of letting the compositor
+// upscale a logical-size buffer (blurry on HiDPI). Input and hit-testing stay
+// in surface coordinates; only the GL buffer and viewport grow.
+// ponytail: integer wl_output.scale only; fractional scales round up via
+// the compositor's own reported integer, add wp_fractional_scale if needed.
+static void ApplyBufferScale(WaylandContext* wl) {
+    int s = 1;
+    if (wl->current_output_index >= 0 && wl->current_output_index < (int)wl->outputs.size())
+        s = wl->outputs[wl->current_output_index]->scale;
+    if (s < 1) s = 1;
+    wl->scale = s;
+    wl->backingWidth = wl->width * s;
+    wl->backingHeight = wl->height * s;
+    if (wl->surface) wl_surface_set_buffer_scale(wl->surface, s);
+    if (wl->egl_window) wl_egl_window_resize(wl->egl_window, wl->backingWidth, wl->backingHeight, 0, 0);
+}
+
 // --- Layer Surface Handlers ---
 static void layer_surface_configure(void *data, struct zwlr_layer_surface_v1 *surface, uint32_t serial, uint32_t width, uint32_t height) {
     WaylandContext* wl = static_cast<WaylandContext*>(data);
@@ -68,9 +85,7 @@ static void layer_surface_configure(void *data, struct zwlr_layer_surface_v1 *su
     wl->height = height;
     
     // Dynamically resize EGL buffer when configure passes the new size
-    if (wl->egl_window) {
-        wl_egl_window_resize(wl->egl_window, wl->width, wl->height, 0, 0);
-    }
+    ApplyBufferScale(wl);
     
     wl->configured = true;
     std::cout << "[Wayland] Configured! width: " << wl->width << ", height: " << wl->height << std::endl;
@@ -98,7 +113,10 @@ static void output_handle_mode(void* data, struct wl_output* wl_output, uint32_t
     }
 }
 static void output_handle_done(void* data, struct wl_output* wl_output) {}
-static void output_handle_scale(void* data, struct wl_output* wl_output, int32_t factor) {}
+static void output_handle_scale(void* data, struct wl_output* wl_output, int32_t factor) {
+    WaylandContext::OutputInfo* info = static_cast<WaylandContext::OutputInfo*>(data);
+    info->scale = factor;
+}
 static void output_handle_name(void* data, struct wl_output* wl_output, const char* name) {
     WaylandContext::OutputInfo* info = static_cast<WaylandContext::OutputInfo*>(data);
     strncpy(info->name, name, sizeof(info->name) - 1);
@@ -117,7 +135,7 @@ static const struct wl_output_listener output_listener = {
 static void registry_handle_global(void *data, struct wl_registry *registry, uint32_t name, const char *interface, uint32_t version) {
     WaylandContext* wl = static_cast<WaylandContext*>(data);
     if (strcmp(interface, wl_compositor_interface.name) == 0) {
-        wl->compositor = static_cast<wl_compositor*>(wl_registry_bind(registry, name, &wl_compositor_interface, 1));
+        wl->compositor = static_cast<wl_compositor*>(wl_registry_bind(registry, name, &wl_compositor_interface, version < 4 ? version : 4));
     } else if (strcmp(interface, wl_shm_interface.name) == 0) {
         wl->shm = static_cast<wl_shm*>(wl_registry_bind(registry, name, &wl_shm_interface, 1));
     } else if (strcmp(interface, wl_seat_interface.name) == 0) {
@@ -301,6 +319,7 @@ bool SetupWaylandContext(WaylandContext* wl, int width, int height) {
 
     // Now we have the configured width/height
     wl->egl_window = wl_egl_window_create(wl->surface, wl->width, wl->height);
+    ApplyBufferScale(wl);
     wl->egl_surface = eglCreateWindowSurface(wl->egl_display, wl->egl_config, (EGLNativeWindowType)wl->egl_window, nullptr);
     if (wl->egl_surface == EGL_NO_SURFACE) {
         LAppPal::PrintLogLn("Failed to create EGL surface");
@@ -439,6 +458,7 @@ void SwitchWaylandOutputToMonitor(int hx, int hy) {
     wl_display_roundtrip(g_wl->display);
     
     g_wl->egl_window = wl_egl_window_create(g_wl->surface, g_wl->width, g_wl->height);
+    ApplyBufferScale(g_wl);
     g_wl->egl_surface = eglCreateWindowSurface(g_wl->egl_display, g_wl->egl_config, (EGLNativeWindowType)g_wl->egl_window, nullptr);
     eglMakeCurrent(g_wl->egl_display, g_wl->egl_surface, g_wl->egl_surface, g_wl->egl_context);
     eglSwapInterval(g_wl->egl_display, 1);

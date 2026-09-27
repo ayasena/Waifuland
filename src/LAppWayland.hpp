@@ -35,13 +35,17 @@ struct WaylandContext {
     int y;
     int width;
     int height;
+    int scale = 1; // wl_output.scale: buffer pixels per surface pixel
     char name[32];
 };
     std::vector<OutputInfo*> outputs;
     int current_output_index = 0;
     bool configured = false;
-    int width = 0;
+    int width = 0;          // surface (logical) size
     int height = 0;
+    int scale = 1;          // buffer scale of the current output
+    int backingWidth = 0;   // buffer (pixel) size = surface size * scale
+    int backingHeight = 0;
     int margin_left = 0;
     int margin_top = 0;
 };
