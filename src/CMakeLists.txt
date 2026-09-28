@@ -36,6 +36,9 @@ else ()
       ${CMAKE_CURRENT_SOURCE_DIR}/LAppView.cpp
       ${CMAKE_CURRENT_SOURCE_DIR}/LAppView.hpp
       ${CMAKE_CURRENT_SOURCE_DIR}/main.cpp
+      ${CMAKE_CURRENT_SOURCE_DIR}/SubtitleLayout.hpp
+      ${CMAKE_CURRENT_SOURCE_DIR}/Subtitles.cpp
+      ${CMAKE_CURRENT_SOURCE_DIR}/Subtitles.hpp
   )
   if (APPLE)
     target_sources(${APP_NAME}

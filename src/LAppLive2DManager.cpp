@@ -780,6 +780,7 @@ void LAppLive2DManager::GetCharacterPixelRects(int windowWidth, int windowHeight
         if (right <= left || bottom <= top) continue;
 
         ScreenRect rect;
+        rect.id = _characters[i].id;
         rect.left = left;
         rect.top = top;
         rect.width = right - left;

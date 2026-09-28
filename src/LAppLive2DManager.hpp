@@ -146,6 +146,7 @@ public:
     /// 画面ピクセル空間の矩形（左上原点、Waylandサーフェス座標系）。
     struct ScreenRect
     {
+        int id;     ///< the character's id
         int left;
         int top;
         int width;

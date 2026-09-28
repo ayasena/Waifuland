@@ -3,6 +3,7 @@
 #include "LAppWayland.hpp"
 #include "LAppLive2DManager.hpp"
 #include "AlphaRegion.hpp"
+#include "Subtitles.hpp"
 #include <Type/csmVector.hpp>
 #include <cstring>
 #include <vector>
@@ -180,6 +181,18 @@ void UpdateWaylandInputRegion(WaylandContext* wl, bool hidden) {
     if (!hidden)
     {
         LAppLive2DManager::GetInstance()->GetCharacterPixelRects(width, height, boxes);
+        // Subtitles take the mouse where they're drawn, like characters.
+        const std::vector<Subtitles::Box>& subs = Subtitles::Get().Boxes();
+        for (size_t i = 0; i < subs.size(); i++)
+        {
+            LAppLive2DManager::ScreenRect r;
+            r.id = subs[i].character;
+            r.left = subs[i].left < 0 ? 0 : subs[i].left;
+            r.top = subs[i].top < 0 ? 0 : subs[i].top;
+            r.width = subs[i].left + subs[i].width > width ? width - r.left : subs[i].left + subs[i].width - r.left;
+            r.height = subs[i].top + subs[i].height > height ? height - r.top : subs[i].top + subs[i].height - r.top;
+            if (r.width > 0 && r.height > 0) boxes.PushBack(r);
+        }
     }
 
     std::vector<AlphaRegion::Rect> fallback;

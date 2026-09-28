@@ -27,6 +27,7 @@
 #endif
 #include "LAppDefine.hpp"
 #include "LAppLive2DManager.hpp"
+#include "Subtitles.hpp"
 #include "LAppTextureManager.hpp"
 #include "LAppIPC.hpp"
 
@@ -248,6 +249,11 @@ void LAppDelegate::Run()
 
         if (!_isHidden) {
             _view->Render();
+            // After the characters, before the input region is read back:
+            // drawn subtitles take the mouse, as the characters do.
+            Subtitles::Get().Frame(_windowWidth, _windowHeight, 1.0f);
+        } else {
+            Subtitles::Get().Clear();
         }
 
 #ifdef __APPLE__
@@ -281,7 +287,8 @@ LAppDelegate::LAppDelegate():
     _windowStartY(0),
     _lookCenterX(0.5f),
     _lookCenterY(0.5f),
-    _draggedCharacterId(-1)
+    _draggedCharacterId(-1),
+    _draggedSubtitle(-1)
 {
     _executeAbsolutePath = "";
     _view = new LAppView();
@@ -333,6 +340,15 @@ void LAppDelegate::OnMouseCallBack(void* window, int button, int action, int mod
     {
         if (1 == action)
         {
+            // A subtitle under the pointer is dragged instead of anyone.
+            _draggedSubtitle = Subtitles::Get().HitTest(_mouseX, _mouseY);
+            if (_draggedSubtitle >= 0)
+            {
+                _captured = true;
+                _dragStartX = static_cast<int>(_mouseX);
+                _dragStartY = static_cast<int>(_mouseY);
+                return;
+            }
             _captured = true;
             _view->OnTouchesBegan(_mouseX, _mouseY);
 
@@ -353,6 +369,13 @@ void LAppDelegate::OnMouseCallBack(void* window, int button, int action, int mod
         }
         else if (0 == action)
         {
+            if (_captured && _draggedSubtitle >= 0)
+            {
+                _captured = false;
+                _draggedSubtitle = -1;
+                Subtitles::Get().Save();
+                return;
+            }
             if (_captured)
             {
                 _captured = false;
@@ -463,6 +486,19 @@ void LAppDelegate::OnMouseCallBack(void* window, double x, double y)
 
     LookAt(_mouseX, _mouseY);
 
+    if (_captured && _draggedSubtitle >= 0)
+    {
+        int dx = static_cast<int>(x) - _dragStartX;
+        int dy = static_cast<int>(y) - _dragStartY;
+        if (dx != 0 || dy != 0)
+        {
+            Subtitles::Get().Move(_draggedSubtitle, (float)dx, (float)dy);
+            _dragStartX = static_cast<int>(x);
+            _dragStartY = static_cast<int>(y);
+        }
+        return;
+    }
+
     if (_captured && _isDraggingWindow && _draggedCharacterId >= 0)
     {
         double curX = x;
@@ -488,6 +524,14 @@ void LAppDelegate::OnMouseCallBack(void* window, double x, double y)
 void LAppDelegate::OnScrollCallBack(void* window, double xoffset, double yoffset)
 {
     if (_view == NULL) return;
+
+    // Over a subtitle: scale it, the way a character zooms.
+    int sub = Subtitles::Get().HitTest(_mouseX, _mouseY);
+    if (sub >= 0)
+    {
+        Subtitles::Get().Scale(sub, 1.0f + (float)yoffset * 0.02f);
+        return;
+    }
 
     float sx = _view->TransformScreenX(_mouseX);
     float sy = _view->TransformScreenY(_mouseY);

@@ -173,6 +173,7 @@ private:
     /// Drag deltas move only this character; -1 means the gesture is just a
     /// window-level drag (e.g. for the cross-monitor move-on-release check).
     int _draggedCharacterId;
+    int _draggedSubtitle;   ///< the character whose subtitle is being dragged, or -1
     
 public:
     bool _isHidden = false;

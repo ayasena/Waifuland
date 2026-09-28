@@ -5,6 +5,7 @@
 #include "LAppPal.hpp"
 #include "LAppDefine.hpp"
 #include "JsonMini.hpp"
+#include "Subtitles.hpp"
 
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -633,6 +634,62 @@ std::string LAppIPC::ProcessCommand(const std::string& json)
         {
             return "{\"ok\":false,\"error\":\"no such character\"}";
         }
+        return "{\"ok\":true}";
+    }
+
+    // ── subtitles ──
+    // What a character says, as it's heard: {"command":"subtitle_word",
+    // "character":<id>,"text":"hi","due_ms":120,"utterance":"u1"}; then
+    // {"command":"subtitle_end","character":<id>,"utterance":"u1"} when she's
+    // done. Both silent, like set_mouth (sent as fast as words come).
+    if (command == "subtitle_word")
+    {
+        int charId = ResolveCharacter(req, mgr);
+        if (mgr->GetCharacterModel(charId) != NULL)
+        {
+            Subtitles::Get().Word(charId, req.GetString("text"), req.GetInt("due_ms", 0), req.GetString("utterance"));
+        }
+        return "";
+    }
+    if (command == "subtitle_end")
+    {
+        Subtitles::Get().End(ResolveCharacter(req, mgr), req.GetString("utterance"));
+        return "";
+    }
+    // {"command":"get_subtitles"}: on or off, the font, each model's place
+    // and scale, and the characters shown with theirs.
+    if (command == "get_subtitles")
+    {
+        std::string all = Subtitles::Get().Json();
+        return "{\"ok\":true," + all.substr(1);
+    }
+    // {"command":"set_subtitles","enabled":false}: all of them on or off.
+    if (command == "set_subtitles")
+    {
+        // {"font":"Luckiest Guy"} (or a file) swaps the lettering; "" is the default.
+        if (req.Has("font")) Subtitles::Get().SetFont(req.GetString("font"));
+        if (req.Has("enabled")) Subtitles::Get().SetEnabled(req.GetBool("enabled", true));
+        return "{\"ok\":true}";
+    }
+    // {"command":"set_subtitle","model":"Haru","enabled":true,"x":0,"y":-40,"scale":1.2}:
+    // one model's subtitle; what's left out stays as it was.
+    if (command == "set_subtitle")
+    {
+        std::string model = req.GetString("model");
+        if (model.empty()) return "{\"ok\":false,\"error\":\"missing 'model'\"}";
+        SubtitleLayout::ModelSettings m = Subtitles::Get().Settings().Of(model);
+        m.enabled = req.GetBool("enabled", m.enabled);
+        m.x = req.GetFloat("x", m.x);
+        m.y = req.GetFloat("y", m.y);
+        m.scale = req.GetFloat("scale", m.scale);
+        Subtitles::Get().SetModel(model, m);
+        return "{\"ok\":true}";
+    }
+    // {"command":"subtitle_preview","seconds":8}: a sample line on everyone,
+    // to drag and scroll into place while nobody is talking.
+    if (command == "subtitle_preview")
+    {
+        Subtitles::Get().Preview(req.GetFloat("seconds", 8.0f));
         return "{\"ok\":true}";
     }
 

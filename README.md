@@ -467,6 +467,23 @@ Like `set_mouth_y`, plus the mouth's shape: `open` `0.0`..`1.0` (ParamMouthOpenY
 {"command": "set_mouth", "character": 1, "open": 0.6, "form": -0.8}
 ```
 
+#### Subtitles
+
+Each character can have a subtitle drawn beside her: what she says, word by word as it's heard, in heavy rounded lettering (M PLUS Rounded 1c Black by default; any fontconfig pattern or font file via `set_subtitles` `"font"`) with a black keyline. Words pop in, the block re-centres as it grows, and words slide out to the left once she's done. Drag a subtitle to move it and scroll over it to size it, as with a character. Settings (on/off globally and per model, offset, scale) are kept in `$XDG_STATE_HOME/waifuland/subtitles.json` (default `~/.local/state`), by model name.
+
+- `subtitle_word` — a word `character` will say in `due_ms`, part of `utterance`. Silent.
+- `subtitle_end` — `character` is done saying `utterance`; the block goes after a moment. Silent.
+- `get_subtitles` — the settings, and the characters shown with theirs.
+- `set_subtitles` — all subtitles on or off (`enabled`).
+- `set_subtitle` — one model's `enabled`, `x`, `y` (logical px) and `scale`; what's left out stays.
+- `subtitle_preview` — a sample line on every character for `seconds`, to arrange them.
+
+```json
+{"command": "subtitle_word", "character": 0, "text": "Hello!", "due_ms": 120, "utterance": "u1"}
+{"command": "subtitle_end", "character": 0, "utterance": "u1"}
+{"command": "set_subtitle", "model": "Haru", "scale": 1.3}
+```
+
 #### `set_mouth_batch` — Set several mouths in one call
 
 Same as `set_mouth_y`, but moves every listed character with a single request — one syscall per audio chunk instead of one per character. Unknown ids are skipped. Silent unless `"ack": true`.
