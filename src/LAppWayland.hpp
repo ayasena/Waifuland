@@ -66,3 +66,6 @@ void CleanWaylandContext(WaylandContext* wl);
 
 void SwitchWaylandOutput(int direction);
 void MoveToFocusedMonitor();
+// Hidden: no surface at all (nothing drawn, nothing takes the mouse); shown again.
+void UnmapWaylandSurface(WaylandContext* wl);
+void MapWaylandSurface(WaylandContext* wl);

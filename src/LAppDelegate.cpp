@@ -173,6 +173,22 @@ void LAppDelegate::Run()
         wl_display_flush(_wlContext.display);
 #endif
 
+#ifndef __APPLE__
+        if (_isHidden) {
+            // Hidden: no surface at all, so nothing is drawn and nothing
+            // takes the mouse. Only IPC (to be shown again) and Wayland
+            // events are served, a few times a second.
+            UnmapWaylandSurface(&_wlContext);
+            if (wl_display_roundtrip(_wlContext.display) == -1) {
+                break;
+            }
+            LAppIPC::GetInstance()->Poll();
+            usleep(50000);
+            continue;
+        }
+        MapWaylandSurface(&_wlContext);
+#endif
+
         int width = _wlContext.width;
         int height = _wlContext.height;
 

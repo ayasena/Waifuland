@@ -162,6 +162,11 @@ void Capture(int surfaceH, int scale, int left, int top, int width, int height)
 
 } // namespace
 
+void ResetWaylandInputRegion() {
+    s.committedValid = false;
+    s.haveMask = false;
+}
+
 void UpdateWaylandInputRegion(WaylandContext* wl, bool hidden) {
     if (!wl || !wl->compositor || !wl->surface) return;
 

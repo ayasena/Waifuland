@@ -5,6 +5,7 @@
 #include "LAppWayland.hpp"
 #include "LAppDelegate.hpp"
 #include "LAppPal.hpp"
+#include "LAppWaylandRegion.hpp"
 #include <linux/input-event-codes.h>
 #include <iostream>
 
@@ -403,6 +404,64 @@ void UpdateMonitorCoordinates() {
     }
 }
 
+// The overlay's surface, destroyed: nothing of it is left on screen to draw
+// or to take the mouse. The GL context stays current without a surface
+// (EGL_KHR_surfaceless_context), so models can still load meanwhile.
+static void DestroyLayerSurface(WaylandContext* wl) {
+    eglMakeCurrent(wl->egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, wl->egl_context);
+    if (wl->egl_surface != EGL_NO_SURFACE) {
+        eglDestroySurface(wl->egl_display, wl->egl_surface);
+        wl->egl_surface = EGL_NO_SURFACE;
+    }
+    if (wl->egl_window) {
+        wl_egl_window_destroy(wl->egl_window);
+        wl->egl_window = nullptr;
+    }
+    if (wl->layer_surface) {
+        zwlr_layer_surface_v1_destroy(wl->layer_surface);
+        wl->layer_surface = nullptr;
+    }
+    if (wl->surface) {
+        wl_surface_destroy(wl->surface);
+        wl->surface = nullptr;
+    }
+    wl_display_flush(wl->display);
+}
+
+// A full-screen overlay surface on the current output.
+static void CreateLayerSurface(WaylandContext* wl) {
+    wl->surface = wl_compositor_create_surface(wl->compositor);
+    wl_output* output = wl->outputs.empty() ? nullptr : wl->outputs[wl->current_output_index]->output;
+
+    wl->layer_surface = zwlr_layer_shell_v1_get_layer_surface(
+        wl->layer_shell, wl->surface, output,
+        ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "waifuland");
+
+    zwlr_layer_surface_v1_add_listener(wl->layer_surface, &layer_surface_listener, wl);
+    zwlr_layer_surface_v1_set_size(wl->layer_surface, 0, 0);
+    zwlr_layer_surface_v1_set_anchor(wl->layer_surface, ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP | ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM | ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT | ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
+    zwlr_layer_surface_v1_set_keyboard_interactivity(wl->layer_surface, 0);
+
+    wl_surface_commit(wl->surface);
+    wl_display_roundtrip(wl->display);
+
+    wl->egl_window = wl_egl_window_create(wl->surface, wl->width, wl->height);
+    ApplyBufferScale(wl);
+    wl->egl_surface = eglCreateWindowSurface(wl->egl_display, wl->egl_config, (EGLNativeWindowType)wl->egl_window, nullptr);
+    eglMakeCurrent(wl->egl_display, wl->egl_surface, wl->egl_surface, wl->egl_context);
+    eglSwapInterval(wl->egl_display, 1);
+    // A new surface takes the mouse everywhere until it's told otherwise.
+    ResetWaylandInputRegion();
+}
+
+void UnmapWaylandSurface(WaylandContext* wl) {
+    if (wl->surface) DestroyLayerSurface(wl);
+}
+
+void MapWaylandSurface(WaylandContext* wl) {
+    if (!wl->surface) CreateLayerSurface(wl);
+}
+
 void SwitchWaylandOutputToMonitor(int hx, int hy) {
     if (!g_wl || g_wl->outputs.empty()) return;
     UpdateMonitorCoordinates();
@@ -424,44 +483,8 @@ void SwitchWaylandOutputToMonitor(int hx, int hy) {
     LAppPal::PrintLogLn("[Wayland] Switching output from %d to %d", g_wl->current_output_index, target_idx);
     g_wl->current_output_index = target_idx;
     
-    if (g_wl->egl_surface != EGL_NO_SURFACE) {
-        eglDestroySurface(g_wl->egl_display, g_wl->egl_surface);
-        g_wl->egl_surface = EGL_NO_SURFACE;
-    }
-    if (g_wl->egl_window) {
-        wl_egl_window_destroy(g_wl->egl_window);
-        g_wl->egl_window = nullptr;
-    }
-    if (g_wl->layer_surface) {
-        zwlr_layer_surface_v1_destroy(g_wl->layer_surface);
-        g_wl->layer_surface = nullptr;
-    }
-    if (g_wl->surface) {
-        wl_surface_destroy(g_wl->surface);
-        g_wl->surface = nullptr;
-    }
-    
-    // Switch to new output
-    g_wl->surface = wl_compositor_create_surface(g_wl->compositor);
-    wl_output* output = g_wl->outputs[g_wl->current_output_index]->output;
-    
-    g_wl->layer_surface = zwlr_layer_shell_v1_get_layer_surface(
-        g_wl->layer_shell, g_wl->surface, output, 
-        ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "waifuland");
-    
-    zwlr_layer_surface_v1_add_listener(g_wl->layer_surface, &layer_surface_listener, g_wl);
-    zwlr_layer_surface_v1_set_size(g_wl->layer_surface, 0, 0);
-    zwlr_layer_surface_v1_set_anchor(g_wl->layer_surface, ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP | ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM | ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT | ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
-    zwlr_layer_surface_v1_set_keyboard_interactivity(g_wl->layer_surface, 0);
-    
-    wl_surface_commit(g_wl->surface);
-    wl_display_roundtrip(g_wl->display);
-    
-    g_wl->egl_window = wl_egl_window_create(g_wl->surface, g_wl->width, g_wl->height);
-    ApplyBufferScale(g_wl);
-    g_wl->egl_surface = eglCreateWindowSurface(g_wl->egl_display, g_wl->egl_config, (EGLNativeWindowType)g_wl->egl_window, nullptr);
-    eglMakeCurrent(g_wl->egl_display, g_wl->egl_surface, g_wl->egl_surface, g_wl->egl_context);
-    eglSwapInterval(g_wl->egl_display, 1);
+    DestroyLayerSurface(g_wl);
+    CreateLayerSurface(g_wl);
 }
 
 static bool GetFocusedMonitorName(char* name, size_t name_len) {
