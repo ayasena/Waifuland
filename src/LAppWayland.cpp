@@ -314,6 +314,11 @@ bool SetupWaylandContext(WaylandContext* wl, int width, int height) {
     // Set interactive, anchor to all edges to get a full-screen transparent overlay
     zwlr_layer_surface_v1_set_size(wl->layer_surface, 0, 0);
     zwlr_layer_surface_v1_set_anchor(wl->layer_surface, ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP | ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM | ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT | ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
+    // The whole output, under panels' exclusive zones too: the surface's
+    // origin is then the output's, the same space as the global cursor
+    // (hyprctl cursorpos minus the output's position) that hit tests and
+    // drags use. Inset by a bar, every pointer position was off by its height.
+    zwlr_layer_surface_v1_set_exclusive_zone(wl->layer_surface, -1);
     zwlr_layer_surface_v1_set_keyboard_interactivity(wl->layer_surface, 0); // No keyboard focus
     wl_surface_commit(wl->surface);
     wl_display_roundtrip(wl->display); // Wait for configure event
@@ -440,6 +445,11 @@ static void CreateLayerSurface(WaylandContext* wl) {
     zwlr_layer_surface_v1_add_listener(wl->layer_surface, &layer_surface_listener, wl);
     zwlr_layer_surface_v1_set_size(wl->layer_surface, 0, 0);
     zwlr_layer_surface_v1_set_anchor(wl->layer_surface, ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP | ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM | ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT | ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
+    // The whole output, under panels' exclusive zones too: the surface's
+    // origin is then the output's, the same space as the global cursor
+    // (hyprctl cursorpos minus the output's position) that hit tests and
+    // drags use. Inset by a bar, every pointer position was off by its height.
+    zwlr_layer_surface_v1_set_exclusive_zone(wl->layer_surface, -1);
     zwlr_layer_surface_v1_set_keyboard_interactivity(wl->layer_surface, 0);
 
     wl_surface_commit(wl->surface);
