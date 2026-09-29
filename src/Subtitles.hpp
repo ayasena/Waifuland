@@ -53,6 +53,8 @@ public:
     void SetEnabled(bool on);
     /// Letter with `font` (a fontconfig pattern or a file; empty: the default).
     void SetFont(const std::string& font);
+    /// Letters and keyline colours, `#rrggbb`; false (unchanged) if either isn't one.
+    bool SetColors(const std::string& color, const std::string& outline);
     void SetModel(const std::string& model, const SubtitleLayout::ModelSettings& m);
     /// The settings and the characters shown, as JSON (`get_subtitles`).
     std::string Json() const;

@@ -150,6 +150,8 @@ struct Settings
 {
     bool enabled = true;
     std::string font;   ///< a fontconfig pattern or a file; empty = M PLUS Rounded 1c Black
+    std::string color = "#ffffff";   ///< the letters, #rrggbb
+    std::string outline = "#000000"; ///< the keyline, #rrggbb
     std::map<std::string, ModelSettings> models;
 
     ModelSettings Of(const std::string& model) const
@@ -160,6 +162,29 @@ struct Settings
 
     bool On(const std::string& model) const { return enabled && Of(model).enabled; }
 };
+
+/// `#rrggbb` (the # optional) as 0..1 channels; false, `rgb` untouched, if it isn't one.
+inline bool ParseHex(const std::string& s, float rgb[3])
+{
+    size_t o = (!s.empty() && s[0] == '#') ? 1 : 0;
+    if (s.size() != o + 6) return false;
+    float v[3];
+    for (int i = 0; i < 3; i++)
+    {
+        int n = 0;
+        for (int k = 0; k < 2; k++)
+        {
+            char c = s[o + i * 2 + k];
+            int d = (c >= '0' && c <= '9') ? c - '0' : (c >= 'a' && c <= 'f') ? c - 'a' + 10
+                  : (c >= 'A' && c <= 'F') ? c - 'A' + 10 : -1;
+            if (d < 0) return false;
+            n = n * 16 + d;
+        }
+        v[i] = n / 255.0f;
+    }
+    rgb[0] = v[0]; rgb[1] = v[1]; rgb[2] = v[2];
+    return true;
+}
 
 inline float ClampScale(float s) { return s < 0.4f ? 0.4f : (s > 3.0f ? 3.0f : s); }
 
@@ -187,7 +212,7 @@ inline std::string ToJson(const Settings& s)
 {
     std::ostringstream o;
     o << "{\"enabled\":" << (s.enabled ? "true" : "false") << ",\"font\":\"" << Escape(s.font)
-      << "\",\"models\":[";
+      << "\",\"color\":\"" << Escape(s.color) << "\",\"outline\":\"" << Escape(s.outline) << "\",\"models\":[";
     bool first = true;
     for (std::map<std::string, ModelSettings>::const_iterator it = s.models.begin(); it != s.models.end(); ++it)
     {
@@ -207,6 +232,10 @@ inline Settings FromJson(const std::string& text)
     if (!j.Parse(text)) return s;
     s.enabled = j.GetBool("enabled", true);
     s.font = j.GetString("font");
+    float rgb[3];
+    std::string c = j.GetString("color"), o = j.GetString("outline");
+    if (ParseHex(c, rgb)) s.color = c;
+    if (ParseHex(o, rgb)) s.outline = o;
     std::vector<std::string> items;
     if (JsonMini::SplitTopLevel(j.GetString("models", "[]"), items))
     {

@@ -87,7 +87,7 @@ Font g_main, g_fallback;
 std::map<int, Glyph> g_glyphs;
 bool g_glTried = false, g_glOk = false;
 GLuint g_tex = 0, g_prog = 0, g_vbo = 0;
-GLint g_aPos = -1, g_aUv = -1, g_aAlpha = -1, g_uSize = -1, g_uTex = -1, g_uKeyline = -1;
+GLint g_aPos = -1, g_aUv = -1, g_aAlpha = -1, g_uSize = -1, g_uTex = -1, g_uKeyline = -1, g_uFill = -1, g_uLine = -1;
 int g_penX = 1, g_penY = 1, g_rowH = 0;
 
 /// A font file fontconfig has for `pattern`, and whether its family matches.
@@ -174,11 +174,14 @@ void main() {
 }
 )";
 
-// White fill, black keyline, both edges smoothed by the field itself, so the
-// shape stays crisp at any size; out premultiplied, as the compositor wants.
+// Fill and keyline (colours from the settings), both edges smoothed by the
+// field itself, so the shape stays crisp at any size; out premultiplied, as
+// the compositor wants.
 const char* kFragment = R"(#version 120
 uniform sampler2D u_tex;
 uniform float u_keyline;
+uniform vec3 u_fill;
+uniform vec3 u_line;
 varying vec2 v_uv;
 varying float v_alpha;
 void main() {
@@ -187,7 +190,7 @@ void main() {
     float fill = smoothstep(0.5 - w, 0.5 + w, d);
     float shape = smoothstep(u_keyline - w, u_keyline + w, d);
     float a = shape * v_alpha;
-    gl_FragColor = vec4(vec3(fill) * a, a);
+    gl_FragColor = vec4(mix(u_line, u_fill, fill) * a, a);
 }
 )";
 
@@ -272,6 +275,8 @@ bool Subtitles::EnsureGl()
     g_uSize = glGetUniformLocation(g_prog, "u_size");
     g_uTex = glGetUniformLocation(g_prog, "u_tex");
     g_uKeyline = glGetUniformLocation(g_prog, "u_keyline");
+    g_uFill = glGetUniformLocation(g_prog, "u_fill");
+    g_uLine = glGetUniformLocation(g_prog, "u_line");
 
     GLint bound = 0;
     glGetIntegerv(GL_TEXTURE_BINDING_2D, &bound);
@@ -512,6 +517,16 @@ void Subtitles::SetFont(const std::string& font)
     Save();
 }
 
+bool Subtitles::SetColors(const std::string& color, const std::string& outline)
+{
+    float rgb[3];
+    if (!ParseHex(color, rgb) || !ParseHex(outline, rgb)) return false;
+    _settings.color = color;
+    _settings.outline = outline;
+    Save();
+    return true;
+}
+
 void Subtitles::SetEnabled(bool on)
 {
     _settings.enabled = on;
@@ -691,6 +706,11 @@ void Subtitles::Frame(int width, int height, float pixelScale)
     glUniform2f(g_uSize, (float)width, (float)height);
     glUniform1i(g_uTex, 0);
     glUniform1f(g_uKeyline, 0.5f - kKeyline * kEm * kDistScale / 255.0f);
+    float fillRgb[3] = { 1, 1, 1 }, lineRgb[3] = { 0, 0, 0 };
+    ParseHex(_settings.color, fillRgb);
+    ParseHex(_settings.outline, lineRgb);
+    glUniform3fv(g_uFill, 1, fillRgb);
+    glUniform3fv(g_uLine, 1, lineRgb);
     glBindTexture(GL_TEXTURE_2D, g_tex);
     glBindBuffer(GL_ARRAY_BUFFER, g_vbo);
     glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(verts.size() * sizeof(Vertex)), verts.data(), GL_STREAM_DRAW);

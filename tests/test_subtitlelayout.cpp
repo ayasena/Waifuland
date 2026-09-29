@@ -112,6 +112,16 @@ static void TestSettings()
     CHECK(back.Of("Mao").enabled && back.Of("Mao").scale == 1.0f);
     CHECK(!back.On("Hiyori"));
 
+    // Colours round-trip; a bad one keeps the default.
+    s.color = "#ffe066";
+    s.outline = "202040";
+    Settings c = FromJson(ToJson(s));
+    CHECK(c.color == "#ffe066" && c.outline == "202040");
+    CHECK(FromJson("{\"color\":\"red\"}").color == "#ffffff");
+    float rgb[3];
+    CHECK(ParseHex("#ff0000", rgb) && Near(rgb[0], 1.0f) && Near(rgb[1], 0.0f));
+    CHECK(!ParseHex("#ff00", rgb) && !ParseHex("#gg0000", rgb));
+
     // A broken file keeps the defaults; a wild scale is clamped.
     CHECK(FromJson("not json").enabled);
     CHECK(Near(FromJson("{\"models\":[{\"model\":\"A\",\"scale\":99}]}").Of("A").scale, 3.0f));

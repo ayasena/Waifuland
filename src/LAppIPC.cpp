@@ -668,6 +668,13 @@ std::string LAppIPC::ProcessCommand(const std::string& json)
     {
         // {"font":"Luckiest Guy"} (or a file) swaps the lettering; "" is the default.
         if (req.Has("font")) Subtitles::Get().SetFont(req.GetString("font"));
+        // {"color":"#ffe066","outline":"#202040"}: letters and keyline, #rrggbb.
+        if (req.Has("color") || req.Has("outline"))
+        {
+            const SubtitleLayout::Settings& s = Subtitles::Get().Settings();
+            if (!Subtitles::Get().SetColors(req.GetString("color", s.color), req.GetString("outline", s.outline)))
+                return "{\"ok\":false,\"error\":\"color and outline must be #rrggbb\"}";
+        }
         if (req.Has("enabled")) Subtitles::Get().SetEnabled(req.GetBool("enabled", true));
         return "{\"ok\":true}";
     }
