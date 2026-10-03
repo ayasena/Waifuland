@@ -15,6 +15,7 @@
 
 #include "LAppWavFileHandler_Common.hpp"
 #include "LAppModel_Common.hpp"
+#include "PoseHold.hpp"
 
 /**
  * @brief Per-frame voice input for one character.
@@ -169,6 +170,11 @@ public:
     std::vector<MotionInfo> GetMotionList() const;
 
     /**
+     * @brief   The pose groups from pose3.json and the parts held in them (set_pose).
+     */
+    PoseHold& GetPoseHold() { return _poseHold; }
+
+    /**
      * @brief   Get the model setting (for IPC to query model capabilities).
      */
     Csm::ICubismModelSetting* GetModelSetting() const { return _modelSetting; }
@@ -294,6 +300,8 @@ private:
     /// Default values for each skin parameter (from model defaults)
     Csm::csmVector<Csm::csmFloat32> _allSkinParamDefaults;
     void CollectSkinParams(); ///< Scan motion group JSONs to collect skin parameter IDs
+
+    PoseHold _poseHold; ///< Pose groups and the parts held in them over IPC
 
     LAppWavFileHandler_Common _wavFileHandler; ///< wavファイルハンドラ
 };

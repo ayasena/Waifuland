@@ -17,6 +17,7 @@
 #include <CubismDefaultParameterId.hpp>
 #include <Rendering/OpenGL/CubismRenderer_OpenGLES2.hpp>
 #include <Utils/CubismString.hpp>
+#include <Utils/CubismJson.hpp>
 #include <Id/CubismIdManager.hpp>
 #include <Motion/CubismMotionQueueEntry.hpp>
 #include "LAppDefine.hpp"
@@ -245,6 +246,21 @@ void LAppModel::SetupModel(ICubismModelSetting* setting)
 
         buffer = CreateBuffer(path.GetRawString(), &size);
         LoadPose(buffer, size);
+        _poseHold = PoseHold();
+        if (Utils::CubismJson* json = Utils::CubismJson::Create(buffer, size))
+        {
+            Utils::Value& groups = json->GetRoot()["Groups"];
+            for (csmInt32 g = 0; g < groups.GetSize(); ++g)
+            {
+                std::vector<std::string> parts;
+                for (csmInt32 i = 0; i < groups[g].GetSize(); ++i)
+                {
+                    parts.push_back(groups[g][i]["Id"].GetRawString());
+                }
+                _poseHold.groups.push_back(parts);
+            }
+            Utils::CubismJson::Delete(json);
+        }
         DeleteBuffer(buffer, path.GetRawString());
 
         if (_pose != nullptr)
@@ -551,6 +567,14 @@ void LAppModel::Update(const VoiceSample& voice)
     else
     {
         _motionUpdated = _motionManager->UpdateMotion(_model, deltaTimeSeconds); // モーションを更新
+    }
+    // Held pose parts win over idle motions; a higher motion drives them while it plays.
+    {
+        std::vector<std::pair<std::string, float> > parts = _poseHold.Values(_motionManager->GetCurrentPriority() > PriorityIdle);
+        for (size_t i = 0; i < parts.size(); ++i)
+        {
+            _model->SetParameterValue(CubismFramework::GetIdManager()->GetId(parts[i].first.c_str()), parts[i].second);
+        }
     }
     _model->SaveParameters(); // 状態を保存
     //-----------------------------------------------------------------

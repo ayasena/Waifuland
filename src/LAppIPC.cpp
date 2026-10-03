@@ -456,6 +456,71 @@ std::string LAppIPC::ProcessCommand(const std::string& json)
         return "{\"ok\":true}";
     }
 
+    // ── get_poses ──
+    // The pose groups from the model's pose3.json, each as its part ids
+    // (an empty list when the model has no pose).
+    if (command == "get_poses")
+    {
+        int charId = ResolveCharacter(req, mgr);
+        LAppModel* model = mgr->GetCharacterModel(charId);
+        if (!model)
+        {
+            return "{\"ok\":false,\"error\":\"no such character\"}";
+        }
+
+        const PoseHold& pose = model->GetPoseHold();
+        std::ostringstream oss;
+        oss << "{\"ok\":true,\"poses\":[";
+        for (size_t g = 0; g < pose.groups.size(); g++)
+        {
+            if (g > 0) oss << ",";
+            oss << "{\"group\":" << g << ",\"parts\":[";
+            for (size_t i = 0; i < pose.groups[g].size(); i++)
+            {
+                if (i > 0) oss << ",";
+                oss << "\"" << JsonEscape(pose.groups[g][i]) << "\"";
+            }
+            oss << "],\"held\":\"" << JsonEscape(pose.Held((int)g)) << "\"}";
+        }
+        oss << "]}";
+        return oss.str();
+    }
+
+    // ── set_pose ──
+    // {"group":<index>,"part":"<id>"} holds that part until changed;
+    // {"group":<index>,"release":true} gives the group back to the model.
+    // A motion above idle priority still drives the parts while it plays.
+    if (command == "set_pose")
+    {
+        int charId = ResolveCharacter(req, mgr);
+        LAppModel* model = mgr->GetCharacterModel(charId);
+        if (!model)
+        {
+            return "{\"ok\":false,\"error\":\"no such character\"}";
+        }
+
+        int group = req.GetInt("group", -1);
+        if (req.GetBool("release", false))
+        {
+            if (!model->GetPoseHold().Release(group))
+            {
+                return "{\"ok\":false,\"error\":\"no such pose group\"}";
+            }
+            return "{\"ok\":true}";
+        }
+
+        std::string part = req.GetString("part");
+        if (part.empty())
+        {
+            return "{\"ok\":false,\"error\":\"missing 'part' or 'release'\"}";
+        }
+        if (!model->GetPoseHold().Set(group, part))
+        {
+            return "{\"ok\":false,\"error\":\"no such part in that pose group\"}";
+        }
+        return "{\"ok\":true}";
+    }
+
     // ── set_mouth_y ──
     // Per-character lipsync. No reply unless "ack":true — at lipsync rate
     // the reply would be pure waste (the sender never reads it).

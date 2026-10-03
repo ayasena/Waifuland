@@ -14,6 +14,9 @@
 #   waifuland-ctl set_expression --id "happy.exp3.json"
 #   waifuland-ctl get_motions
 #   waifuland-ctl do_motion --group "TapBody" --index 0
+#   waifuland-ctl get_poses
+#   waifuland-ctl set_pose --group 0 --part "PartArmB"
+#   waifuland-ctl set_pose --group 0 --release
 #   waifuland-ctl set_mouth_y --value 0.8
 #   waifuland-ctl set_model_zoom --value 1.5
 #   waifuland-ctl set_model_position --x 0.5 --y -0.3
@@ -61,6 +64,8 @@ if [ $# -lt 1 ]; then
     echo "  set_expression        Set expression (--id)"
     echo "  get_motions           List motions for current model"
     echo "  do_motion             Play motion (--group, --index, --priority)"
+    echo "  get_poses             List pose groups and their parts for current model"
+    echo "  set_pose              Hold a pose part (--group, --part) or give it back (--group, --release)"
     echo "  set_mouth_y           Set mouth Y for lipsync (--value 0.0-1.0, --character, --ack)"
     echo "  set_mouth_batch       Set several mouths at once (--mouths '{\"<id>\":<0..1>,...}')"
     echo "  set_model_zoom        Set zoom level (--value 0.1-10.0)"
@@ -97,7 +102,7 @@ while [ $# -gt 0 ]; do
     key="${1#--}"  # strip leading --
     shift
 
-    if [ "$key" = "reset" ] || [ "$key" = "ack" ]; then
+    if [ "$key" = "reset" ] || [ "$key" = "ack" ] || [ "$key" = "release" ]; then
         JSON="$JSON,\"$key\":true"
         continue
     fi

@@ -37,7 +37,7 @@ https://github.com/user-attachments/assets/95dfdedc-4957-4bb7-b79f-f3addd97a6db
 - **Motion & expression** — supports idle animations, lip-sync, eye-blink, physics, and expressions
 - **Configurable model directory** — load models from any path via CLI flag or XDG config
 - **JSON configuration** — customize behavior via `config.json` (default model, emotion timeout, additional model dirs, scale/position, window size)
-- **IPC control** — Unix domain socket API for external control (model switching, expressions, motions, lipsync, zoom, position, look-at direction)
+- **IPC control** — Unix domain socket API for external control (model switching, expressions, motions, poses, lipsync, zoom, position, look-at direction)
 
 ## Prerequisites
 
@@ -443,6 +443,43 @@ Returns current model, zoom, position, and visibility.
     "ok": true
 }
 ```
+
+#### `get_poses` — List pose groups for current model
+
+A model's `pose3.json` lists groups of parts, and only one part in each group shows at a time (for example two sets of arms). `held` is the part that `set_pose` holds, or `""` when the model decides.
+
+```bash
+./waifuland-ctl get_poses
+```
+
+```json
+{
+    "ok": true,
+    "poses": [
+        {"group": 0, "parts": ["PartArmA", "PartArmB"], "held": ""}
+    ]
+}
+```
+
+A model with no pose returns an empty list.
+
+#### `set_pose` — Hold or release a pose part
+
+```bash
+# Show PartArmB in group 0 and hold it until changed
+./waifuland-ctl set_pose --group 0 --part "PartArmB"
+
+# Give group 0 back to the model (its first part shows until a motion picks one)
+./waifuland-ctl set_pose --group 0 --release
+```
+
+```json
+{
+    "ok": true
+}
+```
+
+A held part shows over the idle motions. A motion played above idle priority (`do_motion`, a tap) still sets the parts while it plays, and the held part comes back when it ends. A group index or part id that is not in the model's pose returns `"ok": false` with an error.
 
 #### `set_mouth_y` — Set mouth opening for external lipsync
 
